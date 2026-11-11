@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VIC Cadastre & Georeferenced Satellite Capture Tool</title>
+
+    <!-- Leaflet, JSZip & Proj4 JS/CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+
+    <style>
+        body, html {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            font-family: 'Segoe UI', system-ui, Arial, sans-serif; overflow: hidden;
+        }
+
+        #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100%; z-index: 0; }
+
+        /* Top Action Banner */
+        #topBanner {
+            position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+            z-index: 1100; background: #1a1a1a; color: #fff; padding: 8px 16px;
+            border-radius: 8px; font-size: 13px; font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+            display: flex; align-items: center; gap: 12px;
+            pointer-events: auto;
+        }
+        #topBanner button {
+            background: #e8a317; color: #111; border: none; padding: 6px 14px;
+            border-radius: 5px; font-weight: 700; cursor: pointer; font-size: 13px;
+        }
+        #topBanner button:hover { background: #f0b42e; }
+        #topBanner button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Right Control Panel */
+        #layerPanel {
+            position: absolute; top: 12px; right: 12px; width: 360px;
+            max-height: calc(100vh - 30px); background: #ffffff;
+            border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+            z-index: 2000; display: flex; flex-direction: column; overflow: hidden;
+            pointer-events: auto !important;
+        }
+        .panel-header {
+            padding: 10px 16px; background: #f8f9fa; border-bottom: 1px solid #e5e5e5;
+            display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+        }
+        .minimize-btn { background: none; border: none; font-size: 16px; font-weight: bold; color: #666; cursor: pointer; }
+
+        .panel-body { padding: 12px; overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 10px; }
+
+        .drop-instruction {
+            font-size: 11px; color: #0078d4; background: #e1f0ff; padding: 8px;
+            border-radius: 6px; text-align: center; font-weight: 600; border: 1px dashed #0078d4;
+        }
+
+        /* Group Sections */
+        .box-section {
+            background: #f8f9fa; border: 1px solid #e2e8f0; border-left: 4px solid #008272;
+            padding: 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 8px;
+        }
+        .box-section.blue { border-left-color: #2563eb; background: #eff6ff; border-color: #bfdbfe; }
+        .box-section.purple { border-left-color: #7c3aed; background: #f3f0ff; border-color: #ddd6fe; }
+        .box-section.amber { border-left-color: #d97706; background: #fffdf4; border-color: #ffebaa; }
+        .box-section.green { border-left-color: #16a34a; background: #f0fdf4; border-color: #bbf7d0; }
+
+        .section-title { font-size: 12px; font-weight: 700; color: #333; }
+
+        /* Search & Autocomplete Styles */
+        .search-container { position: relative; display: flex; flex-direction: column; }
+        .search-row { display: flex; gap: 6px; }
+        .search-row input {
+            flex-grow: 1; padding: 6px 8px; border: 1px solid #cbd5e1;
+            border-radius: 4px; font-size: 11px; outline: none;
+        }
+        .search-row input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+        .search-row button {
+            background: #2563eb; color: white; border: none; padding: 6px 12px;
+            border-radius: 4px; font-weight: 600; font-size: 11px; cursor: pointer;
+        }
+        .search-row button:hover { background: #1d4ed8; }
+        .search-results {
+            position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
+            max-height: 200px; overflow-y: auto; background: white; border: 1px solid #cbd5e1;
+            border-radius: 4px; display: none; flex-direction: column; z-index: 3000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .search-item {
+            padding: 7px 10px; font-size: 11px; border-bottom: 1px solid #f1f5f9;
+            cursor: pointer; color: #1e293b; line-height: 1.3;
+        }
+        .search-item:hover { background: #e2e8f0; color: #0f172a; }
+
+        .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+        .provider-grid button {
+            background: #2c2c2c; color: #eee; border: 1px solid #555; padding: 6px 4px;
+            border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; text-align: center;
+        }
+        .provider-grid button.active { background: #e8a317; color: #111; border-color: #e8a317; }
+
+        .draw-btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .draw-btn-grid button { background: #7c3aed; color: #fff; border: none; padding: 6px 4px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; }
+        .draw-btn-grid button:hover { background: #6d28d9; }
+        .draw-btn-grid button.active { background: #059669; }
+        .draw-btn-grid button.secondary { background: #6b7280; }
+
+        .layer-checkbox-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: #333; }
+        .layer-checkbox-row label { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+
+        /* Shift Controls */
+        .shift-row { display: flex; gap: 8px; align-items: center; font-size: 11px; font-weight: 600; }
+        .shift-row input[type="number"] { width: 65px; padding: 3px 4px; border: 1px solid #ccc; border-radius: 3px; font-weight: 600; }
+
+        /* Labels & Tables */
+        .dim-label {
+            background: rgba(255,255,255,0.92); border: 1px solid #7c3aed; color: #4c1d95;
+            padding: 2px 5px; font-size: 10px; font-weight: bold; font-family: Consolas, monospace;
+            border-radius: 3px; white-space: nowrap; pointer-events: none;
+        }
+        .parcel-table { font-size: 11px; width: 100%; border-collapse: collapse; background: white; }
+        .parcel-table th, .parcel-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; word-break: break-all; vertical-align: top; }
+        .parcel-table th { background: #f8f9fa; color: #333; width: 38%; font-weight: 600; }
+        .attributes-container { max-height: 200px; overflow-y: auto; border: 1px solid #e5e5e5; border-radius: 4px; background: white; }
+
+        .overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 99999;
+            display: flex; align-items: center; justify-content: center; color: white;
+            font: 18px system-ui, sans-serif; font-weight: 600; pointer-events: none;
+        }
+
+        #dropOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,120,212,0.2); border: 4px dashed #0078d4; z-index: 999;
+            display: none; justify-content: center; align-items: center; pointer-events: none;
+        }
+        #dropOverlay h1 { color: #004578; background: white; padding: 20px 40px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div id="topBanner">
+        <span id="bannerText">Ready to capture satellite imagery</span>
+        <button id="captureBtn">Capture MGA Image</button>
+    </div>
+
+    <div id="dropOverlay">
+        <h1>Drop KML / KMZ files onto the map</h1>
+    </div>
+
+    <div id="layerPanel">
+        <div class="panel-header" onclick="togglePanel()">
+            <span style="font-weight:700; font-size:12px;">VIC Cadastre & Satellite Tools</span>
+            <button class="minimize-btn" id="minBtn">−</button>
+        </div>
+        <div class="panel-body" id="panelBody">
+            <div class="drop-instruction">Drag and drop KML/KMZ files onto the map</div>
+
+            <!-- Autocomplete Search Section -->
+            <div class="box-section blue">
+                <div class="section-title" style="color: #1d4ed8;">Search Parcel / Address</div>
+                <div class="search-container">
+                    <div class="search-row">
+                        <input type="text" id="searchInput" placeholder="Address, Lot/Plan (e.g. 3 Hallawell)..." autocomplete="off">
+                        <button onclick="triggerSearchExplicit()">Search</button>
+                    </div>
+                    <div id="searchResults" class="search-results"></div>
+                </div>
+            </div>
+
+            <!-- Imagery Provider Selection Grid -->
+            <div class="box-section">
+                <div class="section-title">Satellite & Basemap Provider</div>
+                <div class="provider-grid">
+                    <button type="button" data-provider="google" class="active">Google</button>
+                    <button type="button" data-provider="esri">Esri</button>
+                    <button type="button" data-provider="bing">Bing</button>
+                    <button type="button" data-provider="hybrid">Hybrid</button>
+                    <button type="button" data-provider="street">Street</button>
+                    <button type="button" data-provider="nsw">NSW</button>
+                </div>
+                <div id="lodInfo" style="font-size: 10px; font-weight:700; color:#555;">LOD08 - 61.0cm/px</div>
+            </div>
+
+            <!-- Vector Layers Section -->
+            <div class="box-section">
+                <div class="section-title">Vicmap Vector Layers</div>
+                <div class="layer-checkbox-row">
+                    <label><input type="checkbox" id="cadastreCheckbox" onchange="toggleCadastreLayer()"> Cadastre (VIC)</label>
+                    <button id="btnShiftCadastre" style="font-size:10px; padding:2px 6px; cursor:pointer;">Shift Cadastre</button>
+                </div>
+                <div class="shift-row">
+                    <span>dE (m):</span><input id="inputDE" type="number" step="0.1" value="0" onchange="onManualShiftChange()">
+                    <span>dN (m):</span><input id="inputDN" type="number" step="0.1" value="0" onchange="onManualShiftChange()">
+                </div>
+                <div class="layer-checkbox-row">
+                    <label><input type="checkbox" id="lotLabelsCheckbox" onchange="toggleLotLabelsLayer()"> Lot labels (SPI)</label>
+                </div>
+                <div class="layer-checkbox-row">
+                    <label><input type="checkbox" id="zonesCheckbox" onchange="toggleZonesLayer()"> Planning Zones</label>
+                </div>
+            </div>
+
+            <!-- Polyline & Dimension Tools -->
+            <div class="box-section purple">
+                <div class="section-title" style="color: #5b21b6;">Polyline & Dimension Tools</div>
+                <div class="draw-btn-grid">
+                    <button id="btnDrawLine" onclick="setDrawMode('line')">Draw Line</button>
+                    <button id="btnDrawPoly" onclick="setDrawMode('polygon')">Draw Poly</button>
+                    <button class="secondary" onclick="undoDrawPoint()">Undo Pt</button>
+                    <button class="secondary" onclick="clearDrawings()">Clear All</button>
+                </div>
+                <div id="drawStatus" style="font-size: 10px; color: #6d28d9; font-style: italic;">Select a tool to begin.</div>
+            </div>
+
+            <!-- Parcel Inspector -->
+            <div class="box-section amber">
+                <div class="section-title" style="color: #b45309;">Parcel Inspector</div>
+                <div id="parcelInspectorContent">
+                    <div style="font-size: 11px; color: #666; font-style: italic; text-align: center;">Click any parcel to inspect attributes.</div>
+                </div>
+            </div>
+
+            <!-- KML Pin Exporter -->
+            <div class="box-section green">
+                <div class="section-title" style="color: #15803d;">Pin Exporter</div>
+                <button style="background: #16a34a; color: white; border: none; padding: 6px; border-radius: 4px; font-weight:600; cursor:pointer;" onclick="exportLastClickKml()">Export Last Click as KML</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Proj4 EPSG Setup
+        proj4.defs("EPSG:7855", "+proj=utm +zone=55 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
+
+        /* MGA Transformations */
+        function lonLatToMGA(lon, lat, zone) {
+            const a = 6378137.0, f = 1 / 298.257222101;
+            const e2 = f * (2 - f), e = Math.sqrt(e2), n = f / (2 - f);
+            const A = (a / (1 + n)) * (1 + (n * n) / 4 + (n * n * n * n) / 64);
+            const lon0 = (zone - 1) * 6 - 180 + 3;
+            const phi = (lat * Math.PI) / 180, lam = (lon * Math.PI) / 180, lam0 = (lon0 * Math.PI) / 180;
+            const alp = [
+                n / 2 - (2 * n * n) / 3 + (5 * n * n * n) / 16,
+                (13 * n * n) / 48 - (3 * n * n * n) / 5,
+                (61 * n * n * n) / 240
+            ];
+            const t = Math.sinh(Math.atanh(Math.sin(phi)) - e * Math.atanh(e * Math.sin(phi)));
+            const eps0 = Math.atan(t / Math.cos(lam - lam0));
+            const nu0 = Math.atanh(Math.sin(lam - lam0) / Math.sqrt(1 + t * t));
+            let eps = eps0, nu = nu0;
+            for (let j = 1; j <= 3; j++) {
+                eps += alp[j - 1] * Math.sin(2 * j * eps0) * Math.cosh(2 * j * nu0);
+                nu += alp[j - 1] * Math.cos(2 * j * eps0) * Math.sinh(2 * j * nu0);
+            }
+            return { E: 500000 + 0.9996 * A * nu, N: 10000000 + 0.9996 * A * eps, zone, lon0 };
+        }
+
+        function mgaToLonLat(E, N, zone) {
+            const a = 6378137.0, f = 1 / 298.257222101;
+            const e2 = f * (2 - f), e = Math.sqrt(e2), n = f / (2 - f);
+            const A = (a / (1 + n)) * (1 + (n * n) / 4 + (n * n * n * n) / 64);
+            const lon0 = (zone - 1) * 6 - 180 + 3;
+            const k0 = 0.9996;
+            const xi = (N - 10000000) / (k0 * A);
+            const eta = (E - 500000) / (k0 * A);
+            const bet = [
+                n / 2 - (2 * n * n) / 3 + (37 * n * n * n) / 96,
+                (n * n) / 48 + (n * n * n) / 15,
+                (17 * n * n * n) / 480
+            ];
+            let xi0 = xi, eta0 = eta;
+            for (let j = 1; j <= 3; j++) {
+                xi0 -= bet[j - 1] * Math.sin(2 * j * xi0) * Math.cosh(2 * j * eta0);
+                eta0 -= bet[j - 1] * Math.cos(2 * j * xi0) * Math.sinh(2 * j * eta0);
+            }
+            const chi = Math.asin(Math.sin(xi0) / Math.cosh(eta0));
+            let phi = chi;
+            for (let i = 0; i < 4; i++) {
+                phi = Math.asin(Math.tanh(Math.atanh(Math.sin(chi)) + e * Math.atanh(e * Math.sin(phi))));
+            }
+            const lam = (lon0 * Math.PI) / 180 + Math.atan2(Math.sinh(eta0), Math.cos(xi0));
+            return { lon: (lam * 180) / Math.PI, lat: (phi * 180) / Math.PI };
+        }
+
+        function zoneFromLon(lon) { return Math.floor((lon + 180) / 6) + 1; }
+
+        /* Global Layer State Variables */
+        let activeTileLayer = null;
+        let activeProvider = "google";
+        let activeCadastreColour = '#FFFF00'; 
+        let cadastreVisible = false, zonesVisible = false, lotLabelsVisible = false;
+        let shiftMode = false, shiftFrom = null;
+
+        /* Map Setup */
+        const MAP_MAX_ZOOM = 22;
+        const map = L.map('map', { zoomControl: false, maxZoom: MAP_MAX_ZOOM }).setView([-36.1214, 146.8843], 13);
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // DISABLE LEAFLET EVENT CAPTURE ON FLOATING PANELS
+        const panelEl = document.getElementById('layerPanel');
+        L.DomEvent.disableClickPropagation(panelEl);
+        L.DomEvent.disableScrollPropagation(panelEl);
+
+        const bannerEl = document.getElementById('topBanner');
+        L.DomEvent.disableClickPropagation(bannerEl);
+
+        const providers = {
+            google: { url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Satellite" },
+            esri: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 18, attribution: "Esri World Imagery" },
+            bing: {
+                maxNativeZoom: 19, attribution: "Bing Aerial",
+                tileUrl: (x, y, z) => {
+                    let q = "";
+                    for (let i = z; i > 0; i--) {
+                        let digit = 0; const mask = 1 << (i - 1);
+                        if ((x & mask) !== 0) digit++; if ((y & mask) !== 0) digit += 2;
+                        q += digit;
+                    }
+                    return `https://ecn.t0.tiles.virtualearth.net/tiles/a${q}.jpeg?g=14659`;
+                }
+            },
+            hybrid: { url: "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Hybrid" },
+            street: { url: "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Maps" },
+            nsw: { url: "https://ti-dcs-tile.img.arcgis.com/arcgis/rest/services/NSWWebImagery/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 22, attribution: "NSW Spatial" }
+        };
+
+        function setProvider(key) {
+            if (!providers[key]) return;
+            if (activeTileLayer) map.removeLayer(activeTileLayer);
+            const p = providers[key];
+            const opts = { maxZoom: MAP_MAX_ZOOM, maxNativeZoom: p.maxNativeZoom, attribution: p.attribution };
+            if (key === 'bing') {
+                activeTileLayer = L.tileLayer('', opts);
+                activeTileLayer.getTileUrl = (coords) => p.tileUrl(coords.x, coords.y, coords.z);
+            } else {
+                activeTileLayer = L.tileLayer(p.url, opts);
+            }
+            activeTileLayer.addTo(map);
+            activeProvider = key;
+
+            activeCadastreColour = (key === 'street') ? '#6C757D' : '#FFFF00';
+
+            document.querySelectorAll('.provider-grid button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.provider === key);
+            });
+            updateLod();
+
+            if (cadastreVisible) fetchVectorCadastre();
+        }
+
+        function updateLod() {
+            const z = Math.round(map.getZoom());
+            const lat = map.getCenter().lat;
+            const res = (156543.03392804097 / Math.pow(2, z)) * Math.cos((lat * Math.PI) / 180);
+            document.getElementById("lodInfo").textContent = `LOD${String(z).padStart(2, '0')} - ${(res * 100).toFixed(1)}cm/px`;
+        }
+
+        setProvider("google");
+        document.querySelectorAll('.provider-grid button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setProvider(btn.dataset.provider);
+            });
+        });
+
+        /* Map Move / Zoom Event Listener */
+        let vectorDebounce = null;
+        map.on('moveend zoomend', () => {
+            updateLod();
+            clearTimeout(vectorDebounce);
+            vectorDebounce = setTimeout(() => {
+                if (cadastreVisible) fetchVectorCadastre();
+                if (zonesVisible) fetchVectorZones();
+                if (lotLabelsVisible) fetchVectorLotLabels();
+            }, 250);
+        });
+
+        /* Vicmap Layer Groups */
+        const cadastreVectorGroup = L.layerGroup().addTo(map);
+        const zonesVectorGroup = L.layerGroup().addTo(map);
+        const lotLabelsVectorGroup = L.layerGroup().addTo(map);
+        const highlightLayerGroup = L.layerGroup().addTo(map);
+
+        function toggleCadastreLayer() {
+            cadastreVisible = document.getElementById('cadastreCheckbox').checked;
+            if (cadastreVisible && map.getZoom() >= 13) fetchVectorCadastre();
+            else { cadastreVectorGroup.clearLayers(); highlightLayerGroup.clearLayers(); }
+        }
+
+        function toggleZonesLayer() {
+            zonesVisible = document.getElementById('zonesCheckbox').checked;
+            if (zonesVisible && map.getZoom() >= 12) fetchVectorZones();
+            else zonesVectorGroup.clearLayers();
+        }
+
+        function toggleLotLabelsLayer() {
+            lotLabelsVisible = document.getElementById('lotLabelsCheckbox').checked;
+            if (lotLabelsVisible && map.getZoom() >= 15) fetchVectorLotLabels();
+            else lotLabelsVectorGroup.clearLayers();
+        }
+
+        function applyCadastreShift(geojson) {
+            const dE = parseFloat(document.getElementById("inputDE").value) || 0;
+            const dN = parseFloat(document.getElementById("inputDN").value) || 0;
+            if (dE === 0 && dN === 0) return geojson;
+
+            const center = map.getCenter();
+            const zone = zoneFromLon(center.lng);
+
+            function shiftCoords(coords) {
+                if (typeof coords[0] === "number") {
+                    const mga = lonLatToMGA(coords[0], coords[1], zone);
+                    const shiftedLonLat = mgaToLonLat(mga.E + dE, mga.N + dN, zone);
+                    return [shiftedLonLat.lon, shiftedLonLat.lat];
+                }
+                return coords.map(shiftCoords);
+            }
+
+            return {
+                type: "FeatureCollection",
+                features: geojson.features.map(f => ({
+                    type: "Feature",
+                    properties: f.properties,
+                    geometry: { type: f.geometry.type, coordinates: shiftCoords(f.geometry.coordinates) }
+                }))
+            };
+        }
+
+        function onManualShiftChange() {
+            if (cadastreVisible) fetchVectorCadastre();
+            if (lotLabelsVisible) fetchVectorLotLabels();
+        }
+
+        async function fetchVectorCadastre() {
+            if (!cadastreVisible || map.getZoom() < 13) {
+                cadastreVectorGroup.clearLayers();
+                return;
+            }
+            const b = map.getBounds();
+            cadastreVectorGroup.clearLayers();
+            try {
+                const wfsParams = new URLSearchParams({
+                    service: 'WFS', version: '1.0.0', request: 'GetFeature',
+                    typeName: 'open-data-platform:v_parcel_mp',
+                    bbox: `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()},EPSG:4326`,
+                    outputFormat: 'application/json'
+                });
+                const res = await fetch(`https://opendata.maps.vic.gov.au/geoserver/wfs?${wfsParams.toString()}`);
+                const text = await res.text();
+                if (!text.trim().startsWith('<')) {
+                    let data = JSON.parse(text);
+                    if (data && data.features) {
+                        data = applyCadastreShift(data);
+                        L.geoJSON(data, {
+                            style: { color: activeCadastreColour, weight: 1.2, fillColor: 'transparent', fillOpacity: 0 },
+                            onEachFeature: (feature, layer) => {
+                                layer.on('click', (e) => {
+                                    if (activeDrawMode || shiftMode) return;
+                                    L.DomEvent.stopPropagation(e);
+                                    handleMapClick(e.latlng);
+                                    selectParcel(feature.properties, feature);
+                                });
+                            }
+                        }).addTo(cadastreVectorGroup);
+                    }
+                }
+            } catch (err) { console.warn("Cadastre WFS error:", err); }
+        }
+
+        function getZoneStyle(feature) {
+            const props = feature.properties || {};
+            const code = (props.ZONE_CODE || props.zone_code || props.ZONE || props.ZONE_ABR || '').toUpperCase();
+            const firstLetter = code.charAt(0);
+
+            let fillColor = '#CCCCCC'; 
+            let strokeColor = '#333333';
+
+            switch (firstLetter) {
+                case 'R': fillColor = '#FFC0CB'; strokeColor = '#D87093'; break;
+                case 'C': fillColor = '#FF8C00'; strokeColor = '#CC7000'; break;
+                case 'I': fillColor = '#9370DB'; strokeColor = '#6A5ACD'; break;
+                case 'P': fillColor = '#20B2AA'; strokeColor = '#008B8B'; break;
+                case 'F': fillColor = '#4682B4'; strokeColor = '#2E6B9E'; break;
+                case 'G': fillColor = '#FF69B4'; strokeColor = '#C71585'; break;
+                case 'U': fillColor = '#708090'; strokeColor = '#4F6070'; break;
+                default: fillColor = '#FFD700'; strokeColor = '#DAA520';
+            }
+
+            return { color: strokeColor, weight: 1.5, fillColor: fillColor, fillOpacity: 0.35 };
+        }
+
+        async function fetchVectorZones() {
+            if (!zonesVisible || map.getZoom() < 12) {
+                zonesVectorGroup.clearLayers();
+                return;
+            }
+            const b = map.getBounds();
+            zonesVectorGroup.clearLayers();
+            try {
+                const wfsParams = new URLSearchParams({
+                    service: 'WFS', version: '1.0.0', request: 'GetFeature',
+                    typeName: 'open-data-platform:plan_zone',
+                    bbox: `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()},EPSG:4326`,
+                    outputFormat: 'application/json', srsName: 'EPSG:4326'
+                });
+                const res = await fetch(`https://opendata.maps.vic.gov.au/geoserver/wfs?${wfsParams.toString()}`);
+                const text = await res.text();
+                if (!text.trim().startsWith('<')) {
+                    const data = JSON.parse(text);
+                    if (data && data.features) {
+                        L.geoJSON(data, {
+                            style: getZoneStyle,
+                            interactive: false,
+                            onEachFeature: (feature, layer) => {
+                                const props = feature.properties || {};
+                                const zoneCode = props.ZONE_CODE || props.zone_code || props.ZONE || props.ZONE_ABR || '';
+                                if (zoneCode) {
+                                    const center = layer.getBounds().getCenter();
+                                    const icon = L.divIcon({
+                                        className: 'zone-text-label',
+                                        html: `<div style="font-size: 11px; font-weight: bold; color: #B91C1C; text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff; white-space: nowrap; transform: translate(-50%, -50%); pointer-events: none;">${zoneCode}</div>`,
+                                        iconSize: [0, 0]
+                                    });
+                                    L.marker(center, { icon, interactive: false }).addTo(zonesVectorGroup);
+                                }
+                            }
+                        }).addTo(zonesVectorGroup);
+                    }
+                }
+            } catch (err) { console.warn("Zones error:", err); }
+        }
+
+        async function fetchVectorLotLabels() {
+            if (!lotLabelsVisible || map.getZoom() < 15) {
+                lotLabelsVectorGroup.clearLayers();
+                return;
+            }
+            const b = map.getBounds();
+            lotLabelsVectorGroup.clearLayers();
+            try {
+                const wfsParams = new URLSearchParams({
+                    service: 'WFS', version: '1.0.0', request: 'GetFeature',
+                    typeName: 'open-data-platform:v_parcel_mp',
+                    bbox: `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()},EPSG:4326`,
+                    outputFormat: 'application/json'
+                });
+                const res = await fetch(`https://opendata.maps.vic.gov.au/geoserver/wfs?${wfsParams.toString()}`);
+                const text = await res.text();
+                if (!text.trim().startsWith('<')) {
+                    let data = JSON.parse(text);
+                    if (data && data.features) {
+                        data = applyCadastreShift(data);
+                        L.geoJSON(data, {
+                            style: { opacity: 0, fillOpacity: 0 },
+                            interactive: false,
+                            onEachFeature: (feature, layer) => {
+                                const props = feature.properties || {};
+                                const spiText = props.spi || props.SPI || props.parcel_spi || '';
+                                if (spiText) {
+                                    const center = layer.getBounds().getCenter();
+                                    const icon = L.divIcon({
+                                        className: 'lot-text-label',
+                                        html: `<div style="font-size: 10px; font-weight: bold; color: #004578; text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff; white-space: nowrap; transform: translate(-50%, -50%); pointer-events: none;">${spiText}</div>`,
+                                        iconSize: [0, 0]
+                                    });
+                                    L.marker(center, { icon, interactive: false }).addTo(lotLabelsVectorGroup);
+                                }
+                            }
+                        }).addTo(lotLabelsVectorGroup);
+                    }
+                }
+            } catch (err) { console.warn("Lot labels error:", err); }
+        }
+
+        /* NATIVE VICMAP DATAGOV WFS JSONP SEARCH ENGINE */
+        let debounceTimer = null;
+        const searchInput = document.getElementById('searchInput');
+        const resultsBox = document.getElementById('searchResults');
+
+        searchInput.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            const val = searchInput.value.trim();
+            if (val.length < 3) {
+                resultsBox.style.display = 'none';
+                return;
+            }
+            debounceTimer = setTimeout(() => {
+                fetchVicmapGeoServerSearch(val);
+            }, 350);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.search-container')) {
+                resultsBox.style.display = 'none';
+            }
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') resultsBox.style.display = 'none';
+            if (e.key === 'Enter') {
+                clearTimeout(debounceTimer);
+                triggerSearchExplicit();
+            }
+        });
+
+        function queryWfsJsonp(params) {
+            return new Promise((resolve, reject) => {
+                const cbName = 'vicwfs_cb_' + Math.round(Math.random() * 1000000);
+                params.set('outputFormat', 'text/javascript');
+                params.set('format_options', `callback:${cbName}`);
+
+                window[cbName] = function(data) {
+                    delete window[cbName];
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    resolve(data);
+                };
+
+                const script = document.createElement('script');
+                script.src = `https://opendata.maps.vic.gov.au/geoserver/wfs?${params.toString()}`;
+                script.onerror = function(err) {
+                    delete window[cbName];
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    reject(err);
+                };
+                document.body.appendChild(script);
+            });
+        }
+
+        async function fetchVicmapGeoServerSearch(q) {
+            resultsBox.style.display = 'flex';
+            resultsBox.innerHTML = `<div class="search-item" style="font-style:italic; color:#666;">Searching Vicmap spatial records...</div>`;
+
+            try {
+                const cleanQ = q.toUpperCase().replace(/[\\]/g, '/');
+                
+                // Query Parcel layer first
+                const parcelParams = new URLSearchParams({
+                    service: 'WFS', version: '1.0.0', request: 'GetFeature',
+                    typeName: 'open-data-platform:v_parcel_mp',
+                    cql_filter: `spi LIKE '%${cleanQ}%' OR parcel_spi LIKE '%${cleanQ}%' OR parcel_plan_number LIKE '%${cleanQ}%' OR ezi_address LIKE '%${cleanQ}%'`,
+                    maxFeatures: '8'
+                });
+
+                let data = await queryWfsJsonp(parcelParams);
+
+                // Fallback to Address layer if parcel returns no matches
+                if (!data || !data.features || data.features.length === 0) {
+                    const addrParams = new URLSearchParams({
+                        service: 'WFS', version: '1.0.0', request: 'GetFeature',
+                        typeName: 'open-data-platform:address',
+                        cql_filter: `ezi_address LIKE '%${cleanQ}%'`,
+                        maxFeatures: '8'
+                    });
+                    data = await queryWfsJsonp(addrParams);
+                }
+
+                if (!data || !data.features || data.features.length === 0) {
+                    resultsBox.innerHTML = `<div class="search-item" style="color:#666;">No Vicmap matching records found</div>`;
+                    return;
+                }
+
+                resultsBox.innerHTML = '';
+                data.features.forEach(feat => {
+                    const p = feat.properties;
+                    const primaryAddr = p.ezi_address || p.EZI_ADDRESS || p.address_string || 'No street address';
+                    const spi = p.spi || p.SPI || p.parcel_spi || '';
+                    
+                    const label = spi ? `${spi} — ${primaryAddr}` : primaryAddr;
+
+                    const el = document.createElement('div');
+                    el.className = 'search-item';
+                    el.textContent = label;
+
+                    el.onclick = () => {
+                        resultsBox.style.display = 'none';
+                        searchInput.value = label;
+
+                        const boundsLayer = L.geoJSON(feat);
+                        const center = boundsLayer.getBounds().getCenter();
+
+                        if (!cadastreVisible) {
+                            document.getElementById('cadastreCheckbox').checked = true;
+                            toggleCadastreLayer();
+                        }
+
+                        map.flyTo(center, 18, { duration: 1.2 });
+                        handleMapClick(center);
+                        selectParcel(p, feat);
+                    };
+                    resultsBox.appendChild(el);
+                });
+
+            } catch (err) {
+                console.warn("Vicmap WFS Search error:", err);
+                resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Search error occurred</div>`;
+            }
+        }
+
+        function triggerSearchExplicit() {
+            const val = searchInput.value.trim();
+            if (val.length >= 2) fetchVicmapGeoServerSearch(val);
+        }
+
+        /* 2-Click Cadastre Shift Logic */
+        const btnShift = document.getElementById("btnShiftCadastre");
+        btnShift.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (shiftMode) { exitShiftMode(true); return; }
+            shiftMode = true; shiftFrom = null;
+            btnShift.style.background = "#c62828"; btnShift.style.color = "#fff";
+            document.getElementById("bannerText").textContent = "Click a point on the CURRENT cadastre line";
+            map.getContainer().style.cursor = 'crosshair';
+        });
+
+        function exitShiftMode(keep) {
+            shiftMode = false; shiftFrom = null;
+            btnShift.style.background = ""; btnShift.style.color = "";
+            document.getElementById("bannerText").textContent = "Ready to capture satellite imagery";
+            map.getContainer().style.cursor = '';
+            onManualShiftChange();
+        }
+
+        /* Drawing & Dimension Engine */
+        let activeDrawMode = null, currentDrawPts = [];
+        let activeTempShape = null;
+        const drawnFeaturesGroup = L.layerGroup().addTo(map);
+        const dimensionLabelsGroup = L.layerGroup().addTo(map);
+
+        function setDrawMode(mode) {
+            finishDrawing();
+            activeDrawMode = mode;
+            document.getElementById('btnDrawLine').classList.toggle('active', mode === 'line');
+            document.getElementById('btnDrawPoly').classList.toggle('active', mode === 'polygon');
+            map.getContainer().style.cursor = mode ? 'crosshair' : '';
+        }
+
+        function latLngToMGA55(latlng) {
+            const p = proj4("EPSG:4326", "EPSG:7855", [latlng.lng, latlng.lat]);
+            return { easting: p[0], northing: p[1] };
+        }
+
+        function computeMGA2020Distance(pt1, pt2) {
+            const m1 = latLngToMGA55(pt1), m2 = latLngToMGA55(pt2);
+            return Math.hypot(m2.easting - m1.easting, m2.northing - m1.northing);
+        }
+
+        function renderDimensionLabels(latlngs, isClosed) {
+            dimensionLabelsGroup.clearLayers();
+            if (latlngs.length < 2) return;
+            const total = latlngs.length;
+            const segments = isClosed ? total : total - 1;
+            for (let i = 0; i < segments; i++) {
+                const p1 = latlngs[i], p2 = latlngs[(i + 1) % total];
+                const dist = computeMGA2020Distance(p1, p2);
+                if (dist < 0.05) continue;
+                const mid = [(p1.lat + p2.lat) / 2, (p1.lng + p2.lng) / 2];
+                const icon = L.divIcon({
+                    className: 'dimension-marker',
+                    html: `<div class="dim-label">${dist.toFixed(1)} m</div>`,
+                    iconSize: [0, 0]
+                });
+                L.marker(mid, { icon, interactive: false }).addTo(dimensionLabelsGroup);
+            }
+        }
+
+        map.on('click', (e) => {
+            if (shiftMode) {
+                const zone = zoneFromLon(e.latlng.lng);
+                if (!shiftFrom) {
+                    shiftFrom = lonLatToMGA(e.latlng.lng, e.latlng.lat, zone);
+                    document.getElementById("bannerText").textContent = "Now click the CORRECT location on the imagery";
+                } else {
+                    const shiftTo = lonLatToMGA(e.latlng.lng, e.latlng.lat, zone);
+                    const dE = shiftTo.E - shiftFrom.E;
+                    const dN = shiftTo.N - shiftFrom.N;
+
+                    document.getElementById("inputDE").value = dE.toFixed(2);
+                    document.getElementById("inputDN").value = dN.toFixed(2);
+
+                    exitShiftMode(true);
+                }
+                return;
+            }
+
+            handleMapClick(e.latlng);
+
+            if (!activeDrawMode) return;
+            currentDrawPts.push(e.latlng);
+            if (activeDrawMode === 'line') {
+                if (!activeTempShape) activeTempShape = L.polyline(currentDrawPts, { color: '#7c3aed', weight: 3 }).addTo(drawnFeaturesGroup);
+                else activeTempShape.setLatLngs(currentDrawPts);
+                renderDimensionLabels(currentDrawPts, false);
+            } else if (activeDrawMode === 'polygon') {
+                if (!activeTempShape) activeTempShape = L.polygon(currentDrawPts, { color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 0.2, weight: 3 }).addTo(drawnFeaturesGroup);
+                else activeTempShape.setLatLngs(currentDrawPts);
+                renderDimensionLabels(currentDrawPts, currentDrawPts.length >= 3);
+            }
+        });
+
+        map.on('dblclick', (e) => {
+            if (!activeDrawMode) return;
+            L.DomEvent.stopPropagation(e);
+            finishDrawing();
+        });
+
+        function finishDrawing() {
+            currentDrawPts = []; activeTempShape = null; activeDrawMode = null;
+            document.getElementById('btnDrawLine').classList.remove('active');
+            document.getElementById('btnDrawPoly').classList.remove('active');
+            map.getContainer().style.cursor = '';
+        }
+
+        function undoDrawPoint() {
+            if (!currentDrawPts.length) return;
+            currentDrawPts.pop();
+            if (activeTempShape) activeTempShape.setLatLngs(currentDrawPts);
+            renderDimensionLabels(currentDrawPts, activeDrawMode === 'polygon');
+        }
+
+        function clearDrawings() {
+            drawnFeaturesGroup.clearLayers();
+            dimensionLabelsGroup.clearLayers();
+            finishDrawing();
+        }
+
+        /* Parcel Inspector & Dynamic Admin Lookups */
+        let lastClickCoords = null, lastClickMarker = null;
+
+        function handleMapClick(latlng) {
+            lastClickCoords = latlng;
+            if (lastClickMarker) map.removeLayer(lastClickMarker);
+            lastClickMarker = L.marker(latlng).addTo(map);
+        }
+
+        async function fetchAddress(featureGeometry) {
+            try {
+                const geoJsonLayer = L.geoJSON(featureGeometry);
+                const bounds = geoJsonLayer.getBounds();
+                const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+                const wfsParams = new URLSearchParams({
+                    service: 'WFS', version: '1.0.0', request: 'GetFeature',
+                    typeName: 'open-data-platform:address',
+                    bbox: `${sw.lng},${sw.lat},${ne.lng},${ne.lat},EPSG:4326`,
+                    outputFormat: 'application/json'
+                });
+                const res = await fetch(`https://opendata.maps.vic.gov.au/geoserver/wfs?${wfsParams.toString()}`);
+                const text = await res.text();
+                if (!text.trim().startsWith('<')) {
+                    const data = JSON.parse(text);
+                    if (data && data.features && data.features.length > 0) {
+                        const p = data.features[0].properties;
+                        return p.ezi_address || p.EZI_ADDRESS || p.address_string || 
+                            `${p.hse_num_from || ''} ${p.road_name || ''}, ${p.locality || ''}`.trim();
+                    }
+                }
+                return "No address assigned";
+            } catch (err) { return "Address lookup failed"; }
+        }
+
+        function formatSplitAddress(fullAddress) {
+            if (!fullAddress || fullAddress === "No address assigned" || fullAddress === "Address lookup failed") {
+                return `<strong>${fullAddress}</strong>`;
+            }
+
+            const match = fullAddress.match(/^(.*?)\s+([A-Z\s]+)\s+(\d{4})$/);
+            if (match) {
+                const street = match[1].trim();
+                const locality = match[2].trim();
+                const postcode = match[3];
+                return `<strong>${street}</strong><br><span style="color:#555;">${locality} VIC ${postcode}</span>`;
+            }
+
+            if (fullAddress.includes(',')) {
+                const parts = fullAddress.split(',');
+                return `<strong>${parts[0].trim()}</strong><br><span style="color:#555;">${parts.slice(1).join(', ').trim()}</span>`;
+            }
+
+            return `<strong>${fullAddress}</strong>`;
+        }
+
+        async function selectParcel(props, featureGeometry) {
+            highlightLayerGroup.clearLayers();
+            if (featureGeometry) {
+                L.geoJSON(featureGeometry, { style: { color: '#FFD700', weight: 3, fillColor: '#FFD700', fillOpacity: 0.25 } }).addTo(highlightLayerGroup);
+            }
+            const primaryIdentifier = (props && (props.spi || props.SPI || props.parcel_spi)) || "N/A";
+            renderInspectorBox(primaryIdentifier, "Fetching address...", props || {});
+
+            if (!props) return;
+
+            const addressResult = await fetchAddress(featureGeometry);
+            renderInspectorBox(primaryIdentifier, addressResult, props);
+        }
+
+        function renderInspectorBox(primaryIdentifier, streetAddress, props) {
+            const formattedAddr = formatSplitAddress(streetAddress);
+
+            const keyMappings = [
+                { label: 'LOT NUMBER', keys: ['parcel_lot_number'] },
+                { label: 'PLAN NUMBER', keys: ['parcel_plan_number'] },
+                { label: 'FURTHER DESC', keys: ['parcel_further_description'] },
+                { label: 'ALLOTMENT', keys: ['parcel_allotment'] },
+                { label: 'SEC', keys: ['parcel_sec'] }
+            ];
+
+            let htmlRows = `
+                <tr><th>STREET ADDR</th><td>${formattedAddr}</td></tr>
+                <tr><th>PRIMARY ID</th><td><strong>${primaryIdentifier}</strong></td></tr>
+            `;
+
+            const renderedKeys = new Set(['parcel_parish_code', 'parcel_township_code', 'parcel_lga_code']);
+            keyMappings.forEach(item => {
+                let foundVal = item.overrideVal !== undefined ? item.overrideVal : null;
+                if (foundVal === null && item.keys) {
+                    for (let k of item.keys) {
+                        if (props[k] !== undefined && props[k] !== null && String(props[k]).trim() !== '') {
+                            foundVal = props[k]; break;
+                        }
+                    }
+                }
+                if (foundVal !== null && String(foundVal).trim() !== '' && foundVal !== 'N/A') {
+                    htmlRows += `<tr><th>${item.label}</th><td>${foundVal}</td></tr>`;
+                    if (item.keys) item.keys.forEach(k => renderedKeys.add(k));
+                }
+            });
+
+            for (let key in props) {
+                if (key.startsWith('_')) continue;
+                const val = props[key];
+                if (!renderedKeys.has(key) && val !== null && val !== undefined && String(val).trim() !== '') {
+                    let cleanKey = key.replace(/^parcel[\s_]+/i, '').replace(/_/g, ' ').toUpperCase();
+                    if (cleanKey !== 'SPI') {
+                        htmlRows += `<tr><th>${cleanKey}</th><td>${val}</td></tr>`;
+                    }
+                }
+            }
+
+            document.getElementById('parcelInspectorContent').innerHTML = `<div class="attributes-container"><table class="parcel-table">${htmlRows}</table></div>`;
+        }
+
+        /* File Handling (KML/KMZ) */
+        const dropOverlay = document.getElementById('dropOverlay');
+        window.addEventListener('dragenter', (e) => { e.preventDefault(); dropOverlay.style.display = 'flex'; });
+        window.addEventListener('dragleave', (e) => { e.preventDefault(); dropOverlay.style.display = 'none'; });
+        window.addEventListener('dragover', (e) => e.preventDefault());
+        window.addEventListener('drop', (e) => {
+            e.preventDefault(); dropOverlay.style.display = 'none';
+            if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+        });
+
+        function handleFiles(files) {
+            for (let file of files) {
+                const reader = new FileReader();
+                reader.onload = (e) => parseKml(e.target.result, file.name);
+                reader.readAsText(file);
+            }
+        }
+
+        function parseKml(kmlText, fileName) {
+            const dom = new DOMParser().parseFromString(kmlText, 'text/xml');
+            const group = L.featureGroup();
+            const placemarks = dom.getElementsByTagName('Placemark');
+            for (let pm of placemarks) {
+                const name = pm.getElementsByTagName('name')[0]?.textContent || 'Feature';
+                for (let pt of pm.getElementsByTagName('Point')) {
+                    const c = pt.getElementsByTagName('coordinates')[0].textContent.trim().split(',');
+                    group.addLayer(L.marker([parseFloat(c[1]), parseFloat(c[0])]).bindPopup(name));
+                }
+            }
+            group.addTo(map);
+        }
+
+        function exportLastClickKml() {
+            const coords = lastClickCoords || map.getCenter();
+            const kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Placemark><name>Pin Drop</name><Point><coordinates>${coords.lng},${coords.lat},0</coordinates></Point></Placemark>
+</kml>`;
+            const blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+            a.download = "pin_drop.kml"; a.click();
+        }
+
+        /* Image Capture Engine */
+        document.getElementById("captureBtn").addEventListener("click", startCapture);
+
+        async function startCapture() {
+            const btn = document.getElementById("captureBtn"); btn.disabled = true;
+            const overlay = document.createElement("div"); overlay.className = "overlay";
+            overlay.textContent = "Calculating tile capture boundaries..."; document.body.appendChild(overlay);
+
+            try {
+                const centre = map.getCenter(); const lon = centre.lng, lat = centre.lat;
+                const level = Math.min(Math.round(map.getZoom()), providers[activeProvider].maxNativeZoom);
+                const shiftDE = parseFloat(document.getElementById("inputDE").value) || 0;
+                const shiftDN = parseFloat(document.getElementById("inputDN").value) || 0;
+
+                let jobScale = parseFloat(prompt("Enter Job Scale / CSF:", "1.000000")) || 1.0;
+
+                overlay.textContent = "Downloading & stitching tile graphics...";
+                const res = 156543.03392804097 / Math.pow(2, level);
+                const zone = zoneFromLon(lon);
+                const mga = lonLatToMGA(lon, lat, zone);
+
+                const canvas = document.createElement("canvas");
+                canvas.width = 1024; canvas.height = 1024;
+                const ctx = canvas.getContext("2d");
+                ctx.fillStyle = "#333"; ctx.fillRect(0, 0, 1024, 1024);
+
+                const baseName = `Capture-MGA${zone}-${level}`;
+
+                // Image Download
+                const a = document.createElement("a");
+                a.href = canvas.toDataURL("image/jpeg", 0.92);
+                a.download = `${baseName}.jpg`; a.click();
+
+                // World file (.jgw)
+                let A = res / jobScale, D = 0, B = 0, E = -res / jobScale;
+                let C = (mga.E + shiftDE) / jobScale;
+                let F = (mga.N + shiftDN) / jobScale;
+
+                const jgw = `${A.toFixed(8)}\n${D.toFixed(8)}\n${B.toFixed(8)}\n${E.toFixed(8)}\n${C.toFixed(3)}\n${F.toFixed(3)}\n`;
+                const a2 = document.createElement("a");
+                a2.href = URL.createObjectURL(new Blob([jgw], { type: "text/plain" }));
+                a2.download = `${baseName}.jgw`; a2.click();
+
+            } catch (err) { alert("Capture failed: " + err.message); }
+            finally { overlay.remove(); btn.disabled = false; }
+        }
+
+        function togglePanel() {
+            const body = document.getElementById('panelBody');
+            body.style.display = body.style.display === 'none' ? 'flex' : 'none';
+        }
+    </script>
+</body>
+</html>
