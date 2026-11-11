@@ -91,7 +91,7 @@
             background: #e8a317; color: #111; border-color: #e8a317; font-weight: 700;
         }
 
-        /* Search & Autocomplete Styles */
+        /* Search Styles */
         .search-container { position: relative; display: flex; flex-direction: column; }
         .search-row { display: flex; gap: 6px; }
         .search-row input {
@@ -169,12 +169,12 @@
         <div class="panel-body" id="panelBody">
             <div class="drop-instruction">Drag and drop KML/KMZ files onto the map</div>
 
-            <!-- Autocomplete Search Section (Strictly Primary ID / SPI) -->
+            <!-- On-Demand Primary ID Search Section -->
             <div class="box-section blue">
                 <div class="section-title" style="color: #1d4ed8;">Search Parcel (Primary ID / SPI)</div>
                 <div class="search-container">
                     <div class="search-row">
-                        <input type="text" id="searchInput" placeholder="Primary ID or Lot/Plan (e.g. 63\LP95148)..." autocomplete="off">
+                        <input type="text" id="searchInput" placeholder="e.g. 2118\PS805842" autocomplete="off">
                         <button onclick="triggerSearchExplicit()">Search</button>
                     </div>
                     <div id="searchResults" class="search-results"></div>
@@ -586,22 +586,9 @@
             } catch (err) { console.warn("Lot labels error:", err); }
         }
 
-        /* VICMAP SPI / PRIMARY ID WFS SEARCH ENGINE (v097) */
-        let debounceTimer = null;
+        /* ON-DEMAND PRIMARY ID SEARCH ENGINE (v098) */
         const searchInput = document.getElementById('searchInput');
         const resultsBox = document.getElementById('searchResults');
-
-        searchInput.addEventListener('input', () => {
-            clearTimeout(debounceTimer);
-            const val = searchInput.value.trim();
-            if (val.length < 2) {
-                resultsBox.style.display = 'none';
-                return;
-            }
-            debounceTimer = setTimeout(() => {
-                fetchVicmapPrimaryIdSearch(val);
-            }, 350);
-        });
 
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.search-container')) {
@@ -612,7 +599,6 @@
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') resultsBox.style.display = 'none';
             if (e.key === 'Enter') {
-                clearTimeout(debounceTimer);
                 triggerSearchExplicit();
             }
         });
@@ -642,47 +628,46 @@
 
         async function fetchVicmapPrimaryIdSearch(q) {
             resultsBox.style.display = 'flex';
-            resultsBox.innerHTML = `<div class="search-item" style="font-style:italic; color:#666;">Searching Vicmap Primary IDs...</div>`;
+            resultsBox.innerHTML = `<div class="search-item" style="font-style:italic; color:#666;">Querying Vicmap...</div>`;
 
             try {
                 const rawQ = q.trim().toUpperCase();
-                // Escape backslashes for CQL single-quoted queries (e.g., 63\LP95148)
                 const safeQ = rawQ.replace(/\\/g, '\\\\').replace(/'/g, "''");
 
-                // Query strictly on SPI and Lot/Plan fields in the Cadastre Layer
+                // Query strictly on SPI fields
                 const parcelParams = new URLSearchParams({
                     service: 'WFS', 
                     version: '1.0.0', 
                     request: 'GetFeature',
                     typeName: 'open-data-platform:v_parcel_mp',
-                    cql_filter: `spi LIKE '%${safeQ}%' OR parcel_spi LIKE '%${safeQ}%' OR parcel_plan_number LIKE '%${safeQ}%' OR parcel_lot_number LIKE '%${safeQ}%'`,
-                    maxFeatures: '10'
+                    cql_filter: `spi = '${safeQ}' OR parcel_spi = '${safeQ}' OR spi LIKE '%${safeQ}%' OR parcel_spi LIKE '%${safeQ}%'`,
+                    maxFeatures: '5'
                 });
 
                 const data = await queryWfsJsonp(parcelParams);
 
                 if (!data || !data.features || data.features.length === 0) {
-                    resultsBox.innerHTML = `<div class="search-item" style="color:#666;">No matching Primary ID found</div>`;
+                    resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Parcel not found</div>`;
                     return;
                 }
 
                 resultsBox.innerHTML = '';
                 data.features.forEach(feat => {
                     const p = feat.properties;
-                    const spi = p.spi || p.SPI || p.parcel_spi || p.parcel_plan_number || 'Unknown ID';
-                    const desc = p.parcel_further_description || p.locality || '';
-                    const label = desc ? `${spi} (${desc})` : spi;
+                    const spi = p.spi || p.SPI || p.parcel_spi || 'Parcel';
+                    
+                    const boundsLayer = L.geoJSON(feat);
+                    const center = boundsLayer.getBounds().getCenter();
+                    const zone = zoneFromLon(center.lng);
+                    const mga = lonLatToMGA(center.lng, center.lat, zone);
 
                     const el = document.createElement('div');
                     el.className = 'search-item';
-                    el.textContent = label;
+                    el.innerHTML = `<strong>${spi}</strong><br><span style="color:#2563eb; font-family:Consolas,monospace;">E: ${mga.E.toFixed(3)}, N: ${mga.N.toFixed(3)} (MGA55)</span>`;
 
                     el.onclick = () => {
                         resultsBox.style.display = 'none';
                         searchInput.value = spi;
-
-                        const boundsLayer = L.geoJSON(feat);
-                        const center = boundsLayer.getBounds().getCenter();
 
                         if (!cadastreVisible) {
                             document.getElementById('cadastreCheckbox').checked = true;
@@ -697,14 +682,16 @@
                 });
 
             } catch (err) {
-                console.warn("Vicmap Primary ID WFS Search error:", err);
-                resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Search error occurred</div>`;
+                console.warn("Search error:", err);
+                resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Search request failed</div>`;
             }
         }
 
         function triggerSearchExplicit() {
             const val = searchInput.value.trim();
-            if (val.length >= 2) fetchVicmapPrimaryIdSearch(val);
+            if (val.length >= 2) {
+                fetchVicmapPrimaryIdSearch(val);
+            }
         }
 
         /* 2-Click Cadastre Shift Logic */
