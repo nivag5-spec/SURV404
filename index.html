@@ -631,74 +631,78 @@
         }
 
         async function fetchVicmapGeoServerSearch(q) {
-            resultsBox.style.display = 'flex';
-            resultsBox.innerHTML = `<div class="search-item" style="font-style:italic; color:#666;">Searching Vicmap spatial records...</div>`;
+    resultsBox.style.display = 'flex';
+    resultsBox.innerHTML = `<div class="search-item" style="font-style:italic; color:#666;">Searching Vicmap spatial records...</div>`;
 
-            try {
-                const cleanQ = q.toUpperCase().replace(/[\\]/g, '/');
-                
-                // Query Parcel layer first
-                const parcelParams = new URLSearchParams({
-                    service: 'WFS', version: '1.0.0', request: 'GetFeature',
-                    typeName: 'open-data-platform:v_parcel_mp',
-                    cql_filter: `spi LIKE '%${cleanQ}%' OR parcel_spi LIKE '%${cleanQ}%' OR parcel_plan_number LIKE '%${cleanQ}%' OR ezi_address LIKE '%${cleanQ}%'`,
-                    maxFeatures: '8'
-                });
+    try {
+        const cleanQ = q.trim().toUpperCase().replace(/[\\]/g, '/');
+        
+        // Target Vicmap's address layer directly for street searches
+        const addrParams = new URLSearchParams({
+            service: 'WFS', 
+            version: '1.0.0', 
+            request: 'GetFeature',
+            typeName: 'open-data-platform:address',
+            cql_filter: `ezi_address LIKE '%${cleanQ}%'`,
+            maxFeatures: '10'
+        });
 
-                let data = await queryWfsJsonp(parcelParams);
+        let data = await queryWfsJsonp(addrParams);
 
-                // Fallback to Address layer if parcel returns no matches
-                if (!data || !data.features || data.features.length === 0) {
-                    const addrParams = new URLSearchParams({
-                        service: 'WFS', version: '1.0.0', request: 'GetFeature',
-                        typeName: 'open-data-platform:address',
-                        cql_filter: `ezi_address LIKE '%${cleanQ}%'`,
-                        maxFeatures: '8'
-                    });
-                    data = await queryWfsJsonp(addrParams);
-                }
-
-                if (!data || !data.features || data.features.length === 0) {
-                    resultsBox.innerHTML = `<div class="search-item" style="color:#666;">No Vicmap matching records found</div>`;
-                    return;
-                }
-
-                resultsBox.innerHTML = '';
-                data.features.forEach(feat => {
-                    const p = feat.properties;
-                    const primaryAddr = p.ezi_address || p.EZI_ADDRESS || p.address_string || 'No street address';
-                    const spi = p.spi || p.SPI || p.parcel_spi || '';
-                    
-                    const label = spi ? `${spi} — ${primaryAddr}` : primaryAddr;
-
-                    const el = document.createElement('div');
-                    el.className = 'search-item';
-                    el.textContent = label;
-
-                    el.onclick = () => {
-                        resultsBox.style.display = 'none';
-                        searchInput.value = label;
-
-                        const boundsLayer = L.geoJSON(feat);
-                        const center = boundsLayer.getBounds().getCenter();
-
-                        if (!cadastreVisible) {
-                            document.getElementById('cadastreCheckbox').checked = true;
-                            toggleCadastreLayer();
-                        }
-
-                        map.flyTo(center, 18, { duration: 1.2 });
-                        handleMapClick(center);
-                        selectParcel(p, feat);
-                    };
-                    resultsBox.appendChild(el);
-                });
-
-            } catch (err) {
-                console.warn("Vicmap WFS Search error:", err);
-                resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Search error occurred</div>`;
-            }
+        // Fallback to Parcel layer if no direct address match (e.g., raw SPI like 1\PS641639)
+        if (!data || !data.features || data.features.length === 0) {
+            const parcelParams = new URLSearchParams({
+                service: 'WFS', 
+                version: '1.0.0', 
+                request: 'GetFeature',
+                typeName: 'open-data-platform:v_parcel_mp',
+                cql_filter: `spi LIKE '%${cleanQ}%' OR parcel_spi LIKE '%${cleanQ}%' OR parcel_plan_number LIKE '%${cleanQ}%'`,
+                maxFeatures: '10'
+            });
+            data = await queryWfsJsonp(parcelParams);
         }
+
+        if (!data || !data.features || data.features.length === 0) {
+            resultsBox.innerHTML = `<div class="search-item" style="color:#666;">No Vicmap matching records found</div>`;
+            return;
+        }
+
+        resultsBox.innerHTML = '';
+        data.features.forEach(feat => {
+            const p = feat.properties;
+            const primaryAddr = p.ezi_address || p.EZI_ADDRESS || p.address_string || 'No street address';
+            const spi = p.spi || p.SPI || p.parcel_spi || '';
+            
+            const label = spi ? `${spi} — ${primaryAddr}` : primaryAddr;
+
+            const el = document.createElement('div');
+            el.className = 'search-item';
+            el.textContent = label;
+
+            el.onclick = () => {
+                resultsBox.style.display = 'none';
+                searchInput.value = label;
+
+                const boundsLayer = L.geoJSON(feat);
+                const center = boundsLayer.getBounds().getCenter();
+
+                if (!cadastreVisible) {
+                    document.getElementById('cadastreCheckbox').checked = true;
+                    toggleCadastreLayer();
+                }
+
+                map.flyTo(center, 18, { duration: 1.2 });
+                handleMapClick(center);
+                selectParcel(p, feat);
+            };
+            resultsBox.appendChild(el);
+        });
+
+    } catch (err) {
+        console.warn("Vicmap WFS Search error:", err);
+        resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Search error occurred</div>`;
+    }
+}
 
         function triggerSearchExplicit() {
             const val = searchInput.value.trim();
