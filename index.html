@@ -68,6 +68,29 @@
 
         .section-title { font-size: 12px; font-weight: 700; color: #333; }
 
+        /* Shared Dark Provider-Style Buttons */
+        .provider-grid button, 
+        .draw-btn-grid button, 
+        .search-row button, 
+        #btnShiftCadastre, 
+        .btn-green-style {
+            background: #2c2c2c; color: #eee; border: 1px solid #555; padding: 6px 4px;
+            border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; text-align: center;
+            transition: background 0.15s, color 0.15s;
+        }
+        .provider-grid button:hover, 
+        .draw-btn-grid button:hover, 
+        .search-row button:hover, 
+        #btnShiftCadastre:hover, 
+        .btn-green-style:hover {
+            background: #3d3d3d; color: #fff;
+        }
+        .provider-grid button.active, 
+        .draw-btn-grid button.active, 
+        #btnShiftCadastre.active {
+            background: #e8a317; color: #111; border-color: #e8a317; font-weight: 700;
+        }
+
         /* Search & Autocomplete Styles */
         .search-container { position: relative; display: flex; flex-direction: column; }
         .search-row { display: flex; gap: 6px; }
@@ -76,11 +99,8 @@
             border-radius: 4px; font-size: 11px; outline: none;
         }
         .search-row input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
-        .search-row button {
-            background: #2563eb; color: white; border: none; padding: 6px 12px;
-            border-radius: 4px; font-weight: 600; font-size: 11px; cursor: pointer;
-        }
-        .search-row button:hover { background: #1d4ed8; }
+        .search-row button { padding: 6px 12px; }
+
         .search-results {
             position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
             max-height: 200px; overflow-y: auto; background: white; border: 1px solid #cbd5e1;
@@ -94,17 +114,7 @@
         .search-item:hover { background: #e2e8f0; color: #0f172a; }
 
         .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-        .provider-grid button {
-            background: #2c2c2c; color: #eee; border: 1px solid #555; padding: 6px 4px;
-            border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; text-align: center;
-        }
-        .provider-grid button.active { background: #e8a317; color: #111; border-color: #e8a317; }
-
         .draw-btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .draw-btn-grid button { background: #7c3aed; color: #fff; border: none; padding: 6px 4px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; }
-        .draw-btn-grid button:hover { background: #6d28d9; }
-        .draw-btn-grid button.active { background: #059669; }
-        .draw-btn-grid button.secondary { background: #6b7280; }
 
         .layer-checkbox-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: #333; }
         .layer-checkbox-row label { cursor: pointer; display: flex; align-items: center; gap: 6px; }
@@ -159,12 +169,12 @@
         <div class="panel-body" id="panelBody">
             <div class="drop-instruction">Drag and drop KML/KMZ files onto the map</div>
 
-            <!-- Autocomplete Search Section -->
+            <!-- Autocomplete Search Section (Strictly Primary ID / SPI) -->
             <div class="box-section blue">
-                <div class="section-title" style="color: #1d4ed8;">Search Parcel / Address</div>
+                <div class="section-title" style="color: #1d4ed8;">Search Parcel (Primary ID / SPI)</div>
                 <div class="search-container">
                     <div class="search-row">
-                        <input type="text" id="searchInput" placeholder="Address, Lot/Plan (e.g. 3 Hallawell)..." autocomplete="off">
+                        <input type="text" id="searchInput" placeholder="Primary ID or Lot/Plan (e.g. 63\LP95148)..." autocomplete="off">
                         <button onclick="triggerSearchExplicit()">Search</button>
                     </div>
                     <div id="searchResults" class="search-results"></div>
@@ -190,7 +200,7 @@
                 <div class="section-title">Vicmap Vector Layers</div>
                 <div class="layer-checkbox-row">
                     <label><input type="checkbox" id="cadastreCheckbox" onchange="toggleCadastreLayer()"> Cadastre (VIC)</label>
-                    <button id="btnShiftCadastre" style="font-size:10px; padding:2px 6px; cursor:pointer;">Shift Cadastre</button>
+                    <button id="btnShiftCadastre" style="font-size:10px; padding:2px 8px;">Shift Cadastre</button>
                 </div>
                 <div class="shift-row">
                     <span>dE (m):</span><input id="inputDE" type="number" step="0.1" value="0" onchange="onManualShiftChange()">
@@ -210,8 +220,8 @@
                 <div class="draw-btn-grid">
                     <button id="btnDrawLine" onclick="setDrawMode('line')">Draw Line</button>
                     <button id="btnDrawPoly" onclick="setDrawMode('polygon')">Draw Poly</button>
-                    <button class="secondary" onclick="undoDrawPoint()">Undo Pt</button>
-                    <button class="secondary" onclick="clearDrawings()">Clear All</button>
+                    <button onclick="undoDrawPoint()">Undo Pt</button>
+                    <button onclick="clearDrawings()">Clear All</button>
                 </div>
                 <div id="drawStatus" style="font-size: 10px; color: #6d28d9; font-style: italic;">Select a tool to begin.</div>
             </div>
@@ -227,7 +237,7 @@
             <!-- KML Pin Exporter -->
             <div class="box-section green">
                 <div class="section-title" style="color: #15803d;">Pin Exporter</div>
-                <button style="background: #16a34a; color: white; border: none; padding: 6px; border-radius: 4px; font-weight:600; cursor:pointer;" onclick="exportLastClickKml()">Export Last Click as KML</button>
+                <button class="btn-green-style" style="width:100%;" onclick="exportLastClickKml()">Export Last Click as KML</button>
             </div>
         </div>
     </div>
@@ -576,7 +586,7 @@
             } catch (err) { console.warn("Lot labels error:", err); }
         }
 
-        /* NATIVE VICMAP DATAGOV WFS JSONP SEARCH ENGINE */
+        /* VICMAP SPI / PRIMARY ID WFS SEARCH ENGINE (v097) */
         let debounceTimer = null;
         const searchInput = document.getElementById('searchInput');
         const resultsBox = document.getElementById('searchResults');
@@ -584,12 +594,12 @@
         searchInput.addEventListener('input', () => {
             clearTimeout(debounceTimer);
             const val = searchInput.value.trim();
-            if (val.length < 3) {
+            if (val.length < 2) {
                 resultsBox.style.display = 'none';
                 return;
             }
             debounceTimer = setTimeout(() => {
-                fetchVicmapGeoServerSearch(val);
+                fetchVicmapPrimaryIdSearch(val);
             }, 350);
         });
 
@@ -630,83 +640,71 @@
             });
         }
 
-        async function fetchVicmapGeoServerSearch(q) {
-    resultsBox.style.display = 'flex';
-    resultsBox.innerHTML = `<div class="search-item" style="font-style:italic; color:#666;">Searching Vicmap spatial records...</div>`;
+        async function fetchVicmapPrimaryIdSearch(q) {
+            resultsBox.style.display = 'flex';
+            resultsBox.innerHTML = `<div class="search-item" style="font-style:italic; color:#666;">Searching Vicmap Primary IDs...</div>`;
 
-    try {
-        const cleanQ = q.trim().toUpperCase().replace(/[\\]/g, '/');
-        
-        // Target Vicmap's address layer directly for street searches
-        const addrParams = new URLSearchParams({
-            service: 'WFS', 
-            version: '1.0.0', 
-            request: 'GetFeature',
-            typeName: 'open-data-platform:address',
-            cql_filter: `ezi_address LIKE '%${cleanQ}%'`,
-            maxFeatures: '10'
-        });
+            try {
+                const rawQ = q.trim().toUpperCase();
+                // Escape backslashes for CQL single-quoted queries (e.g., 63\LP95148)
+                const safeQ = rawQ.replace(/\\/g, '\\\\').replace(/'/g, "''");
 
-        let data = await queryWfsJsonp(addrParams);
+                // Query strictly on SPI and Lot/Plan fields in the Cadastre Layer
+                const parcelParams = new URLSearchParams({
+                    service: 'WFS', 
+                    version: '1.0.0', 
+                    request: 'GetFeature',
+                    typeName: 'open-data-platform:v_parcel_mp',
+                    cql_filter: `spi LIKE '%${safeQ}%' OR parcel_spi LIKE '%${safeQ}%' OR parcel_plan_number LIKE '%${safeQ}%' OR parcel_lot_number LIKE '%${safeQ}%'`,
+                    maxFeatures: '10'
+                });
 
-        // Fallback to Parcel layer if no direct address match (e.g., raw SPI like 1\PS641639)
-        if (!data || !data.features || data.features.length === 0) {
-            const parcelParams = new URLSearchParams({
-                service: 'WFS', 
-                version: '1.0.0', 
-                request: 'GetFeature',
-                typeName: 'open-data-platform:v_parcel_mp',
-                cql_filter: `spi LIKE '%${cleanQ}%' OR parcel_spi LIKE '%${cleanQ}%' OR parcel_plan_number LIKE '%${cleanQ}%'`,
-                maxFeatures: '10'
-            });
-            data = await queryWfsJsonp(parcelParams);
-        }
+                const data = await queryWfsJsonp(parcelParams);
 
-        if (!data || !data.features || data.features.length === 0) {
-            resultsBox.innerHTML = `<div class="search-item" style="color:#666;">No Vicmap matching records found</div>`;
-            return;
-        }
-
-        resultsBox.innerHTML = '';
-        data.features.forEach(feat => {
-            const p = feat.properties;
-            const primaryAddr = p.ezi_address || p.EZI_ADDRESS || p.address_string || 'No street address';
-            const spi = p.spi || p.SPI || p.parcel_spi || '';
-            
-            const label = spi ? `${spi} — ${primaryAddr}` : primaryAddr;
-
-            const el = document.createElement('div');
-            el.className = 'search-item';
-            el.textContent = label;
-
-            el.onclick = () => {
-                resultsBox.style.display = 'none';
-                searchInput.value = label;
-
-                const boundsLayer = L.geoJSON(feat);
-                const center = boundsLayer.getBounds().getCenter();
-
-                if (!cadastreVisible) {
-                    document.getElementById('cadastreCheckbox').checked = true;
-                    toggleCadastreLayer();
+                if (!data || !data.features || data.features.length === 0) {
+                    resultsBox.innerHTML = `<div class="search-item" style="color:#666;">No matching Primary ID found</div>`;
+                    return;
                 }
 
-                map.flyTo(center, 18, { duration: 1.2 });
-                handleMapClick(center);
-                selectParcel(p, feat);
-            };
-            resultsBox.appendChild(el);
-        });
+                resultsBox.innerHTML = '';
+                data.features.forEach(feat => {
+                    const p = feat.properties;
+                    const spi = p.spi || p.SPI || p.parcel_spi || p.parcel_plan_number || 'Unknown ID';
+                    const desc = p.parcel_further_description || p.locality || '';
+                    const label = desc ? `${spi} (${desc})` : spi;
 
-    } catch (err) {
-        console.warn("Vicmap WFS Search error:", err);
-        resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Search error occurred</div>`;
-    }
-}
+                    const el = document.createElement('div');
+                    el.className = 'search-item';
+                    el.textContent = label;
+
+                    el.onclick = () => {
+                        resultsBox.style.display = 'none';
+                        searchInput.value = spi;
+
+                        const boundsLayer = L.geoJSON(feat);
+                        const center = boundsLayer.getBounds().getCenter();
+
+                        if (!cadastreVisible) {
+                            document.getElementById('cadastreCheckbox').checked = true;
+                            toggleCadastreLayer();
+                        }
+
+                        map.flyTo(center, 18, { duration: 1.2 });
+                        handleMapClick(center);
+                        selectParcel(p, feat);
+                    };
+                    resultsBox.appendChild(el);
+                });
+
+            } catch (err) {
+                console.warn("Vicmap Primary ID WFS Search error:", err);
+                resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Search error occurred</div>`;
+            }
+        }
 
         function triggerSearchExplicit() {
             const val = searchInput.value.trim();
-            if (val.length >= 2) fetchVicmapGeoServerSearch(val);
+            if (val.length >= 2) fetchVicmapPrimaryIdSearch(val);
         }
 
         /* 2-Click Cadastre Shift Logic */
@@ -715,14 +713,14 @@
             e.stopPropagation();
             if (shiftMode) { exitShiftMode(true); return; }
             shiftMode = true; shiftFrom = null;
-            btnShift.style.background = "#c62828"; btnShift.style.color = "#fff";
+            btnShift.classList.add('active');
             document.getElementById("bannerText").textContent = "Click a point on the CURRENT cadastre line";
             map.getContainer().style.cursor = 'crosshair';
         });
 
         function exitShiftMode(keep) {
             shiftMode = false; shiftFrom = null;
-            btnShift.style.background = ""; btnShift.style.color = "";
+            btnShift.classList.remove('active');
             document.getElementById("bannerText").textContent = "Ready to capture satellite imagery";
             map.getContainer().style.cursor = '';
             onManualShiftChange();
