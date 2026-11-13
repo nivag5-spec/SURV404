@@ -54,38 +54,54 @@
         .panel-body { padding: 12px; overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 10px; }
 
         .drop-instruction {
-            font-size: 11px; color: #0078d4; background: #e1f0ff; padding: 8px;
-            border-radius: 6px; text-align: center; font-weight: 600; border: 1px dashed #0078d4;
+            font-size: 11px; color: #5b21b6; background: #f3f0ff; padding: 8px;
+            border-radius: 6px; text-align: center; font-weight: 600; border: 1px dashed #7c3aed;
         }
 
-        /* Group Sections */
-        .box-section {
-            background: #f8f9fa; border: 1px solid #e2e8f0; border-left: 4px solid #008272;
-            padding: 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 8px;
+        /* Group Sections - Unified Purple Theme */
+        .box-section,
+        .box-section.blue,
+        .box-section.purple,
+        .box-section.amber,
+        .box-section.green {
+            background: #f3f0ff;
+            border: 1px solid #ddd6fe;
+            border-left: 4px solid #7c3aed;
+            padding: 10px;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
-        .box-section.blue { border-left-color: #2563eb; background: #eff6ff; border-color: #bfdbfe; }
-        .box-section.purple { border-left-color: #7c3aed; background: #f3f0ff; border-color: #ddd6fe; }
-        .box-section.amber { border-left-color: #d97706; background: #fffdf4; border-color: #ffebaa; }
-        .box-section.green { border-left-color: #16a34a; background: #f0fdf4; border-color: #bbf7d0; }
 
-        .section-title { font-size: 12px; font-weight: 700; color: #333; }
+        .section-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #5b21b6;
+        }
 
         /* Shared Dark Provider-Style Buttons */
         .provider-grid button, 
         .draw-btn-grid button, 
         .search-row button, 
         #btnShiftCadastre, 
+        #btnParcelReport,
         .btn-green-style {
             background: #2c2c2c; color: #eee; border: 1px solid #555; padding: 6px 4px;
             border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; text-align: center;
-            transition: background 0.15s, color 0.15s;
+            transition: background 0.15s, color 0.15s, opacity 0.15s;
         }
         .provider-grid button:hover, 
         .draw-btn-grid button:hover, 
         .search-row button:hover, 
         #btnShiftCadastre:hover, 
+        #btnParcelReport:hover:not(:disabled),
         .btn-green-style:hover {
             background: #3d3d3d; color: #fff;
+        }
+        #btnParcelReport:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
         }
         .provider-grid button.active, 
         .draw-btn-grid button.active, 
@@ -131,6 +147,22 @@
             transform: translate(-50%, -50%);
         }
 
+        /* KML Point Marker Labels */
+        .kml-point-label {
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid #6d28d9;
+            color: #1e1b4b;
+            font-size: 10.5px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 3px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            white-space: nowrap;
+            transform: translate(-50%, -18px);
+            pointer-events: none;
+            display: inline-block;
+        }
+
         .parcel-table { font-size: 11px; width: 100%; border-collapse: collapse; background: white; }
         .parcel-table th, .parcel-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; word-break: break-all; vertical-align: top; }
         .parcel-table th { background: #f8f9fa; color: #333; width: 38%; font-weight: 600; }
@@ -148,6 +180,15 @@
             display: none; justify-content: center; align-items: center; pointer-events: none;
         }
         #dropOverlay h1 { color: #004578; background: white; padding: 20px 40px; border-radius: 8px; }
+
+        /* Print formatting rules */
+        @media print {
+            body, html { width: 100%; height: 100%; overflow: visible; }
+            #map { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; }
+            #layerPanel, #topBanner, #dropOverlay, .leaflet-control-zoom {
+                display: none !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -171,9 +212,28 @@
         <div class="panel-body" id="panelBody">
             <div class="drop-instruction">Drag and drop KML/KMZ files onto the map</div>
 
+            <!-- Active KML/KMZ Layers Manager (Hidden until files are dropped) -->
+            <div id="kmlManagerBox" class="box-section" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="section-title">KML / KMZ Layers</div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="font-size: 11px; font-weight: 600; color: #333; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                            <input type="checkbox" id="kmlLabelsCheckbox" onchange="renderVisibleKmlLabels()"> Labels
+                        </label>
+                        <button type="button" onclick="clearAllKmlLayers()" style="background:#2c2c2c; color:#eee; border:1px solid #555; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; cursor:pointer;">Clear All</button>
+                    </div>
+                </div>
+                <div class="search-row">
+                    <input type="text" id="kmlFilterInput" placeholder="Filter KML features by name..." onkeydown="if(event.key==='Enter'){ event.preventDefault(); filterKmlFeatures(true); }">
+                    <button type="button" onclick="filterKmlFeatures(true)">Search</button>
+                    <button type="button" onclick="clearKmlSearch()">Clear</button>
+                </div>
+                <div id="kmlLayerList" style="display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto;"></div>
+            </div>
+
             <!-- Single Unified Address / Lot\Plan Search Section -->
             <div class="box-section blue">
-                <div class="section-title" style="color: #1d4ed8;">Search Location</div>
+                <div class="section-title">Search Location</div>
                 <div class="search-container">
                     <div class="search-row">
                         <input type="text" id="searchInput" placeholder="Address or Lot\Plan (e.g. 2118\PS805842 or Smollett St)" autocomplete="off">
@@ -205,6 +265,9 @@
                             <label><input type="checkbox" id="cadastreCheckbox" onchange="toggleCadastreLayer()"> Cadastre (VIC)</label>
                         </div>
                         <div class="layer-checkbox-row">
+                            <label><input type="checkbox" id="proposedCheckbox" onchange="toggleProposedLayer()"> Proposed lots</label>
+                        </div>
+                        <div class="layer-checkbox-row">
                             <label><input type="checkbox" id="lotLabelsCheckbox" onchange="toggleLotLabelsLayer()"> Lot labels (SPI)</label>
                         </div>
                         <div class="layer-checkbox-row">
@@ -228,7 +291,7 @@
 
             <!-- Polyline & Dimension Tools -->
             <div class="box-section purple">
-                <div class="section-title" style="color: #5b21b6;">Polyline & Dimension Tools</div>
+                <div class="section-title">Polyline & Dimension Tools</div>
                 <div class="draw-btn-grid">
                     <button id="btnDrawLine" onclick="setDrawMode('line')">Draw Line</button>
                     <button id="btnDrawPoly" onclick="setDrawMode('polygon')">Draw Poly</button>
@@ -240,16 +303,22 @@
 
             <!-- Parcel Inspector -->
             <div class="box-section amber">
-                <div class="section-title" style="color: #b45309;">Parcel Inspector</div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="section-title">Parcel Inspector</div>
+                    <button type="button" id="btnParcelReport" style="font-size:10px; padding:3px 10px;" title="Use link in parcel report to download and save the Planning Property Report" onclick="openParcelReport()" disabled>Parcel Report</button>
+                </div>
                 <div id="parcelInspectorContent">
                     <div style="font-size: 11px; color: #666; font-style: italic; text-align: center;">Click any parcel to inspect attributes.</div>
                 </div>
             </div>
 
-            <!-- KML Pin Exporter -->
+            <!-- KML Pin Exporter & Print -->
             <div class="box-section green">
-                <div class="section-title" style="color: #15803d;">Pin Exporter</div>
-                <button class="btn-green-style" style="width:100%;" onclick="exportLastClickKml()">Export Last Click as KML</button>
+                <div class="section-title">Pin Exporter & Print</div>
+                <div style="display: flex; gap: 6px;">
+                    <button class="btn-green-style" style="flex:1;" onclick="exportLastClickKml()">Export Last Click as KML</button>
+                    <button class="btn-green-style" style="flex:1;" onclick="triggerMapPrint()">Print Map View</button>
+                </div>
             </div>
         </div>
     </div>
@@ -315,12 +384,15 @@
         let activeProvider = "google_sat";
         let activeGroup = "google";
         let activeCadastreColour = '#FFFF00'; 
-        let cadastreVisible = false, zonesVisible = false, lotLabelsVisible = false;
+        let cadastreVisible = false, zonesVisible = false, lotLabelsVisible = false, includeProposed = false;
+        
         let shiftMode = false, shiftFrom = null;
+        let currentParcelPfi = null, currentParcelIsProposed = false;
 
-        /* Map Setup */
+        /* Map Setup with Canvas Acceleration for High-Density Vector/KML Layers */
         const MAP_MAX_ZOOM = 22;
-        const map = L.map('map', { zoomControl: false, maxZoom: MAP_MAX_ZOOM }).setView([-36.1214, 146.8843], 13);
+        const map = L.map('map', { zoomControl: false, maxZoom: MAP_MAX_ZOOM, preferCanvas: true }).setView([-36.1214, 146.8843], 13);
+        const kmlCanvasRenderer = L.canvas({ padding: 0.5 });
         L.control.zoom({ position: 'bottomright' }).addTo(map);
 
         // DISABLE LEAFLET EVENT CAPTURE ON FLOATING PANELS
@@ -387,7 +459,6 @@
                 layer.getTileUrl = (coords) => p.tileUrl(coords.x, coords.y, coords.z);
                 activeTileLayer = layer;
             } else if (key === 'esri_hybrid') {
-                // Combine base imagery with transparent roads & places overlays
                 const base = L.tileLayer(p.url, opts);
                 const roads = L.tileLayer(p.overlayUrl, { maxZoom: MAP_MAX_ZOOM, maxNativeZoom: p.maxNativeZoom, pane: 'overlayPane' });
                 const places = L.tileLayer(p.labelsUrl, { maxZoom: MAP_MAX_ZOOM, maxNativeZoom: p.maxNativeZoom, pane: 'overlayPane' });
@@ -398,23 +469,18 @@
 
             activeTileLayer.addTo(map);
             activeProvider = key;
-
-            // Adjust cadastre line colour for readability on light street maps
             activeCadastreColour = p.isStreet ? '#6C757D' : '#FFFF00';
 
             updateLod();
-            if (cadastreVisible) fetchVectorCadastre();
+            if (cadastreVisible || includeProposed) fetchVectorCadastre();
         }
 
         function handleProviderClick(group) {
             const btn = document.querySelector(`.provider-grid button[data-group="${group}"]`);
-            
-            // Highlight active group button
             document.querySelectorAll('.provider-grid button').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
 
             if (providerCycles[group]) {
-                // Advance to next mode if clicking the already active button
                 if (activeGroup === group) {
                     cycleIndex[group] = (cycleIndex[group] + 1) % providerCycles[group].length;
                 }
@@ -422,7 +488,6 @@
                 activeGroup = group;
                 setProvider(targetKey);
             } else {
-                // Standard single-state button (Bing / NSW)
                 activeGroup = group;
                 setProvider(group);
             }
@@ -435,7 +500,6 @@
             document.getElementById("lodInfo").textContent = `LOD${String(z).padStart(2, '0')} - ${(res * 100).toFixed(1)}cm/px`;
         }
 
-        // Initialize default provider
         setProvider("google_sat");
         document.querySelectorAll('.provider-grid button').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -448,9 +512,10 @@
         let vectorDebounce = null;
         map.on('moveend zoomend', () => {
             updateLod();
+            renderVisibleKmlLabels();
             clearTimeout(vectorDebounce);
             vectorDebounce = setTimeout(() => {
-                if (cadastreVisible) fetchVectorCadastre();
+                if (cadastreVisible || includeProposed) fetchVectorCadastre();
                 if (zonesVisible) fetchVectorZones();
                 if (lotLabelsVisible) fetchVectorLotLabels();
             }, 250);
@@ -466,21 +531,34 @@
 
         function toggleCadastreLayer() {
             cadastreVisible = document.getElementById('cadastreCheckbox').checked;
-            if (cadastreVisible && map.getZoom() >= 13) fetchVectorCadastre();
+            clearParcelInspector("Layer state changed — click a parcel to inspect.");
+            if ((cadastreVisible || includeProposed) && map.getZoom() >= 13) fetchVectorCadastre();
             else { 
-                cadastreVectorGroup.clearLayers(); 
-                clearParcelInspector("Click any parcel to inspect attributes.");
+                if (!cadastreVisible && !includeProposed) cadastreVectorGroup.clearLayers();
+                else fetchVectorCadastre();
+            }
+        }
+
+        function toggleProposedLayer() {
+            includeProposed = document.getElementById('proposedCheckbox').checked;
+            clearParcelInspector("Layer state changed — click a parcel to inspect.");
+            if ((cadastreVisible || includeProposed) && map.getZoom() >= 13) fetchVectorCadastre();
+            else {
+                if (!cadastreVisible && !includeProposed) cadastreVectorGroup.clearLayers();
+                else fetchVectorCadastre();
             }
         }
 
         function toggleZonesLayer() {
             zonesVisible = document.getElementById('zonesCheckbox').checked;
+            clearParcelInspector("Layer state changed — click a parcel to inspect.");
             if (zonesVisible && map.getZoom() >= 12) fetchVectorZones();
             else zonesVectorGroup.clearLayers();
         }
 
         function toggleLotLabelsLayer() {
             lotLabelsVisible = document.getElementById('lotLabelsCheckbox').checked;
+            clearParcelInspector("Layer state changed — click a parcel to inspect.");
             if (lotLabelsVisible && map.getZoom() >= 15) fetchVectorLotLabels();
             else lotLabelsVectorGroup.clearLayers();
         }
@@ -513,13 +591,13 @@
         }
 
         function onManualShiftChange() {
-    clearParcelInspector("Cadastre shifted — click a parcel to inspect.");
-    if (cadastreVisible) fetchVectorCadastre();
-    if (lotLabelsVisible) fetchVectorLotLabels();
-}
+            clearParcelInspector("Cadastre shifted — click a parcel to inspect.");
+            if (cadastreVisible || includeProposed) fetchVectorCadastre();
+            if (lotLabelsVisible) fetchVectorLotLabels();
+        }
 
         async function fetchVectorCadastre() {
-            if (!cadastreVisible || map.getZoom() < 13) {
+            if ((!cadastreVisible && !includeProposed) || map.getZoom() < 13) {
                 cadastreVectorGroup.clearLayers();
                 return;
             }
@@ -537,9 +615,28 @@
                 if (!text.trim().startsWith('<')) {
                     let data = JSON.parse(text);
                     if (data && data.features) {
+                        data.features = data.features.filter(f => {
+                            const p = f.properties || {};
+                            const st = String(p.parcel_status || p.PARCEL_STATUS || p.status || p.STATUS || '').trim().toUpperCase();
+                            const isProposed = (st === 'P');
+                            if (isProposed) return includeProposed;
+                            return cadastreVisible;
+                        });
+
                         data = applyCadastreShift(data);
                         L.geoJSON(data, {
-                            style: { color: activeCadastreColour, weight: 1.2, fillColor: 'transparent', fillOpacity: 0 },
+                            style: (feature) => {
+                                const p = feature.properties || {};
+                                const st = String(p.parcel_status || p.PARCEL_STATUS || p.status || p.STATUS || '').trim().toUpperCase();
+                                const isProposed = (st === 'P');
+                                return { 
+                                    color: activeCadastreColour, 
+                                    weight: isProposed ? 1.5 : 1.2, 
+                                    dashArray: isProposed ? '4, 4' : null,
+                                    fillColor: 'transparent', 
+                                    fillOpacity: 0 
+                                };
+                            },
                             onEachFeature: (feature, layer) => {
                                 layer.on('click', (e) => {
                                     if (activeDrawMode || shiftMode) return;
@@ -672,8 +769,6 @@
         function executeSearch() {
             const query = searchInput.value.trim();
             if (!query) return;
-
-            // Clear any previous parcel highlight, red SPI boundary, and inspector table
             clearParcelInspector("Searching...");
 
             if (query.includes('\\')) {
@@ -832,21 +927,12 @@
                     document.getElementById("bannerText").textContent = "Now click the CORRECT location on the imagery";
                 } else {
                     const shiftTo = lonLatToMGA(e.latlng.lng, e.latlng.lat, zone);
-                    
-                    // Calculate the incremental movement from the two clicks
                     const incrementalDE = shiftTo.E - shiftFrom.E;
                     const incrementalDN = shiftTo.N - shiftFrom.N;
-
-                    // Add to the existing shift values already in the boxes
                     const currentDE = parseFloat(document.getElementById("inputDE").value) || 0;
                     const currentDN = parseFloat(document.getElementById("inputDN").value) || 0;
-
-                    const totalDE = currentDE + incrementalDE;
-                    const totalDN = currentDN + incrementalDN;
-
-                    document.getElementById("inputDE").value = totalDE.toFixed(2);
-                    document.getElementById("inputDN").value = totalDN.toFixed(2);
-
+                    document.getElementById("inputDE").value = (currentDE + incrementalDE).toFixed(2);
+                    document.getElementById("inputDN").value = (currentDN + incrementalDN).toFixed(2);
                     exitShiftMode(true);
                 }
                 return;
@@ -854,7 +940,6 @@
 
             handleMapClick(e.latlng);
 
-            // Clear parcel highlight and inspector when clicking non-parcel areas
             if (!activeDrawMode) {
                 clearParcelInspector("No parcel data at selected location.");
                 return;
@@ -907,7 +992,23 @@
             lastClickMarker = L.marker(latlng).addTo(map);
         }
 
+        function updateParcelReportButton() {
+            const btn = document.getElementById('btnParcelReport');
+            if (btn) {
+                btn.disabled = !currentParcelPfi || currentParcelIsProposed;
+            }
+        }
+
+        function openParcelReport() {
+            if (!currentParcelPfi) return;
+            const url = `https://property-report-api.mapshare.vic.gov.au/?PFI=${encodeURIComponent(currentParcelPfi)}&Type=Parcel&source=propertyportal`;
+            window.open(url, '_blank', 'noopener');
+        }
+
         function clearParcelInspector(message = "Click any parcel to inspect attributes.") {
+            currentParcelPfi = null;
+            currentParcelIsProposed = false;
+            updateParcelReportButton();
             highlightLayerGroup.clearLayers();
             if (parcelPolygon) {
                 map.removeLayer(parcelPolygon);
@@ -968,6 +1069,15 @@
             if (featureGeometry) {
                 L.geoJSON(featureGeometry, { style: { color: '#FFD700', weight: 3, fillColor: '#FFD700', fillOpacity: 0.25 } }).addTo(highlightLayerGroup);
             }
+
+            const rawPfi = props ? (props.parcel_pfi || props.PARCEL_PFI || props.pfi || props.PFI) : null;
+            currentParcelPfi = (rawPfi !== null && rawPfi !== undefined && String(rawPfi).trim() !== '') ? String(rawPfi).trim() : null;
+
+            const st = props ? String(props.parcel_status || props.PARCEL_STATUS || props.status || props.STATUS || '').trim().toUpperCase() : '';
+            currentParcelIsProposed = (st === 'P');
+
+            updateParcelReportButton();
+
             const primaryIdentifier = (props && (props.spi || props.SPI || props.parcel_spi || props.PARCEL_SPI)) || "N/A";
             renderInspectorBox(primaryIdentifier, "Fetching address...", props || {});
 
@@ -983,17 +1093,23 @@
             const keyMappings = [
                 { label: 'LOT NUMBER', keys: ['parcel_lot_number', 'PARCEL_LOT_NUMBER'] },
                 { label: 'PLAN NUMBER', keys: ['parcel_plan_number', 'PARCEL_PLAN_NUMBER'] },
+                { label: 'STATUS', keys: ['parcel_status', 'PARCEL_STATUS', 'status', 'STATUS'], transform: (val) => {
+                  const v = String(val).trim().toUpperCase();
+                  if (v === 'P') return 'Proposed';
+                  if (v === 'A') return 'Approved';
+                  return val;
+              }},
                 { label: 'FURTHER DESC', keys: ['parcel_further_description'] },
                 { label: 'ALLOTMENT', keys: ['parcel_allotment'] },
                 { label: 'SEC', keys: ['parcel_sec'] }
             ];
 
             let htmlRows = `
-                <tr><th>STREET ADDR</th><td>${formattedAddr}</td></tr>
+                <tr><th>STREET ADDRESS</th><td>${formattedAddr}</td></tr>
                 <tr><th>PRIMARY ID</th><td><strong>${primaryIdentifier}</strong></td></tr>
             `;
 
-            const renderedKeys = new Set(['parcel_parish_code', 'parcel_township_code', 'parcel_lga_code']);
+            const renderedKeys = new Set(['parcel_parish_code', 'parcel_township_code', 'parcel_lga_code', 'status', 'STATUS', 'parcel_status', 'PARCEL_STATUS']);
             keyMappings.forEach(item => {
                 let foundVal = item.overrideVal !== undefined ? item.overrideVal : null;
                 if (foundVal === null && item.keys) {
@@ -1004,6 +1120,7 @@
                     }
                 }
                 if (foundVal !== null && String(foundVal).trim() !== '' && foundVal !== 'N/A') {
+                    if (item.transform) foundVal = item.transform(foundVal);
                     htmlRows += `<tr><th>${item.label}</th><td>${foundVal}</td></tr>`;
                     if (item.keys) item.keys.forEach(k => renderedKeys.add(k));
                 }
@@ -1025,34 +1142,241 @@
 
         /* File Handling (KML/KMZ) */
         const dropOverlay = document.getElementById('dropOverlay');
-        window.addEventListener('dragenter', (e) => { e.preventDefault(); dropOverlay.style.display = 'flex'; });
-        window.addEventListener('dragleave', (e) => { e.preventDefault(); dropOverlay.style.display = 'none'; });
+        let dragCounter = 0;
+        const loadedKmlLayers = []; 
+        const kmlLabelsLayerGroup = L.layerGroup().addTo(map);
+
+        window.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            dragCounter++;
+            dropOverlay.style.display = 'flex';
+        });
+        window.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                dropOverlay.style.display = 'none';
+            }
+        });
         window.addEventListener('dragover', (e) => e.preventDefault());
         window.addEventListener('drop', (e) => {
-            e.preventDefault(); dropOverlay.style.display = 'none';
+            e.preventDefault();
+            dragCounter = 0;
+            dropOverlay.style.display = 'none';
             if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
         });
 
-        function handleFiles(files) {
+        async function handleFiles(files) {
             for (let file of files) {
-                const reader = new FileReader();
-                reader.onload = (e) => parseKml(e.target.result, file.name);
-                reader.readAsText(file);
+                const nameLower = file.name.toLowerCase();
+                if (nameLower.endsWith('.kmz')) {
+                    const buf = await file.arrayBuffer();
+                    const zip = await JSZip.loadAsync(buf);
+                    const kmlEntry = Object.values(zip.files).find(f => f.name.toLowerCase().endsWith('.kml'));
+                    if (kmlEntry) {
+                        const kmlText = await kmlEntry.async('text');
+                        parseKml(kmlText, file.name);
+                    }
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = (e) => parseKml(e.target.result, file.name);
+                    reader.readAsText(file);
+                }
             }
+        }
+
+        function parseKmlCoords(coordStr) {
+            return coordStr.trim().split(/\s+/).map(pair => {
+                const parts = pair.split(',');
+                return [parseFloat(parts[1]), parseFloat(parts[0])];
+            }).filter(c => !isNaN(c[0]) && !isNaN(c[1]));
         }
 
         function parseKml(kmlText, fileName) {
             const dom = new DOMParser().parseFromString(kmlText, 'text/xml');
             const group = L.featureGroup();
+            const items = [];
             const placemarks = dom.getElementsByTagName('Placemark');
+
             for (let pm of placemarks) {
-                const name = pm.getElementsByTagName('name')[0]?.textContent || 'Feature';
+                const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || 'Unnamed Feature';
+                const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
+                const popupHtml = desc ? `<strong>${name}</strong><br><span style="font-size:11px;">${desc}</span>` : `<strong>${name}</strong>`;
+                const searchText = `${name} ${desc}`.toLowerCase();
+
                 for (let pt of pm.getElementsByTagName('Point')) {
-                    const c = pt.getElementsByTagName('coordinates')[0].textContent.trim().split(',');
-                    group.addLayer(L.marker([parseFloat(c[1]), parseFloat(c[0])]).bindPopup(name));
+                    const coords = parseKmlCoords(pt.getElementsByTagName('coordinates')[0]?.textContent || '');
+                    if (coords.length) {
+                        const latlng = L.latLng(coords[0][0], coords[0][1]);
+                        const layer = L.circleMarker(latlng, {
+                            renderer: kmlCanvasRenderer,
+                            radius: 6,
+                            fillColor: '#2563eb',
+                            color: '#ffffff',
+                            weight: 1.5,
+                            opacity: 1,
+                            fillOpacity: 0.9
+                        }).bindPopup(popupHtml);
+                        group.addLayer(layer);
+                        items.push({ layer, name, searchText, isPoint: true, latlng });
+                    }
+                }
+
+                for (let ls of pm.getElementsByTagName('LineString')) {
+                    const coords = parseKmlCoords(ls.getElementsByTagName('coordinates')[0]?.textContent || '');
+                    if (coords.length) {
+                        const layer = L.polyline(coords, { renderer: kmlCanvasRenderer, color: '#00e5ff', weight: 3 }).bindPopup(popupHtml);
+                        group.addLayer(layer);
+                        items.push({ layer, name, searchText, isPoint: false });
+                    }
+                }
+
+                for (let poly of pm.getElementsByTagName('Polygon')) {
+                    const outer = poly.getElementsByTagName('outerBoundaryIs')[0] || poly;
+                    const coords = parseKmlCoords(outer.getElementsByTagName('coordinates')[0]?.textContent || '');
+                    if (coords.length) {
+                        const layer = L.polygon(coords, { renderer: kmlCanvasRenderer, color: '#00e5ff', weight: 2, fillOpacity: 0.2 }).bindPopup(popupHtml);
+                        group.addLayer(layer);
+                        items.push({ layer, name, searchText, isPoint: false });
+                    }
                 }
             }
-            group.addTo(map);
+
+            if (items.length > 0) {
+                const id = 'kml_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+                group.addTo(map);
+                loadedKmlLayers.push({ id, name: fileName, visible: true, group, items });
+                renderKmlManager();
+                filterKmlFeatures(false);
+            } else {
+                alert(`No valid geometries found in "${fileName}".`);
+            }
+        }
+
+        function renderKmlManager() {
+            const box = document.getElementById('kmlManagerBox');
+            const list = document.getElementById('kmlLayerList');
+            if (loadedKmlLayers.length === 0) {
+                box.style.display = 'none';
+                list.innerHTML = '';
+                return;
+            }
+            box.style.display = 'flex';
+            list.innerHTML = loadedKmlLayers.map((entry, idx) => `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; background:white; padding:5px 8px; border-radius:4px; border:1px solid #ddd6fe; font-size:11px;">
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-grow:1;" title="${entry.name} (${entry.items.length} features)">
+                        <input type="checkbox" ${entry.visible ? 'checked' : ''} onchange="toggleKmlFile(${idx}, this.checked)">
+                        <span style="overflow:hidden; text-overflow:ellipsis;">${entry.name}</span>
+                        <span style="color:#6d28d9; font-size:10px;">(${entry.items.length})</span>
+                    </label>
+                    <div style="display:flex; gap:4px; flex-shrink:0;">
+                        <button type="button" onclick="zoomToKmlFile(${idx})" title="Zoom to layer" style="background:#2c2c2c; color:#eee; border:1px solid #555; border-radius:3px; padding:2px 6px; font-size:10px; cursor:pointer;">Zoom</button>
+                        <button type="button" onclick="removeKmlFile(${idx})" title="Remove layer" style="background:#2c2c2c; color:#eee; border:1px solid #555; border-radius:3px; padding:2px 6px; font-size:10px; cursor:pointer;">✕</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderVisibleKmlLabels() {
+            kmlLabelsLayerGroup.clearLayers();
+            const show = document.getElementById('kmlLabelsCheckbox')?.checked || false;
+            if (!show || loadedKmlLayers.length === 0) return;
+
+            const bounds = map.getBounds();
+            const term = (document.getElementById('kmlFilterInput')?.value || '').trim().toLowerCase();
+            let count = 0;
+            const MAX_LABELS_ON_SCREEN = 350;
+
+            for (const entry of loadedKmlLayers) {
+                if (!entry.visible) continue;
+                for (const item of entry.items) {
+                    if (!item.isPoint) continue;
+                    if (term && !item.searchText.includes(term)) continue;
+                    if (bounds.contains(item.latlng)) {
+                        const icon = L.divIcon({
+                            className: '',
+                            html: `<div class="kml-point-label">${item.name}</div>`,
+                            iconSize: [0, 0]
+                        });
+                        L.marker(item.latlng, { icon, interactive: false }).addTo(kmlLabelsLayerGroup);
+                        count++;
+                        if (count >= MAX_LABELS_ON_SCREEN) return;
+                    }
+                }
+            }
+        }
+
+        function toggleKmlFile(idx, isChecked) {
+            const entry = loadedKmlLayers[idx];
+            if (!entry) return;
+            entry.visible = isChecked;
+            if (isChecked) {
+                entry.group.addTo(map);
+                filterKmlFeatures(false);
+            } else {
+                map.removeLayer(entry.group);
+                renderVisibleKmlLabels();
+            }
+        }
+
+        function filterKmlFeatures(shouldPan = false) {
+            const term = (document.getElementById('kmlFilterInput')?.value || '').trim().toLowerCase();
+            const matchedBounds = L.latLngBounds([]);
+
+            loadedKmlLayers.forEach(entry => {
+                if (!entry.visible) return;
+                entry.items.forEach(item => {
+                    const matches = !term || item.searchText.includes(term);
+                    if (matches) {
+                        if (!entry.group.hasLayer(item.layer)) entry.group.addLayer(item.layer);
+                        if (term && shouldPan) {
+                            if (item.layer.getBounds) matchedBounds.extend(item.layer.getBounds());
+                            else if (item.latlng) matchedBounds.extend(item.latlng);
+                        }
+                    } else {
+                        if (entry.group.hasLayer(item.layer)) entry.group.removeLayer(item.layer);
+                    }
+                });
+            });
+
+            if (term && shouldPan && matchedBounds.isValid()) {
+                map.flyTo(matchedBounds.getCenter(), map.getZoom());
+            }
+            renderVisibleKmlLabels();
+        }
+
+        function clearKmlSearch() {
+            const input = document.getElementById('kmlFilterInput');
+            if (input) input.value = '';
+            filterKmlFeatures(false);
+        }
+
+        function zoomToKmlFile(idx) {
+            const entry = loadedKmlLayers[idx];
+            if (entry && entry.group.getLayers().length > 0) {
+                map.fitBounds(entry.group.getBounds(), { padding: [40, 40], maxZoom: 19 });
+            }
+        }
+
+        function removeKmlFile(idx) {
+            const entry = loadedKmlLayers[idx];
+            if (!entry) return;
+            map.removeLayer(entry.group);
+            loadedKmlLayers.splice(idx, 1);
+            renderKmlManager();
+            renderVisibleKmlLabels();
+        }
+
+        function clearAllKmlLayers() {
+            loadedKmlLayers.forEach(entry => map.removeLayer(entry.group));
+            loadedKmlLayers.length = 0;
+            kmlLabelsLayerGroup.clearLayers();
+            const filterInput = document.getElementById('kmlFilterInput');
+            if (filterInput) filterInput.value = '';
+            const labelsChk = document.getElementById('kmlLabelsCheckbox');
+            if (labelsChk) labelsChk.checked = false;
+            renderKmlManager();
         }
 
         function exportLastClickKml() {
@@ -1064,6 +1388,11 @@
             const blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
             a.download = "pin_drop.kml"; a.click();
+        }
+
+        /* Dedicated Print Trigger */
+        function triggerMapPrint() {
+            window.print();
         }
 
         /* Image Capture Engine */
@@ -1094,12 +1423,10 @@
 
                 const baseName = `Capture-MGA${zone}-${level}`;
 
-                // Image Download
                 const a = document.createElement("a");
                 a.href = canvas.toDataURL("image/jpeg", 0.92);
                 a.download = `${baseName}.jpg`; a.click();
 
-                // World file (.jgw)
                 let A = res / jobScale, D = 0, B = 0, E = -res / jobScale;
                 let C = (mga.E + shiftDE) / jobScale;
                 let F = (mga.N + shiftDN) / jobScale;
