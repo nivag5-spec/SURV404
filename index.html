@@ -85,7 +85,7 @@
         .draw-btn-grid button, 
         .search-row button, 
         #btnShiftCadastre, 
-        #btnParcelReport,
+        #btnPlanningReport,
         .btn-green-style {
             background: #2c2c2c; color: #eee; border: 1px solid #555; padding: 6px 4px;
             border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; text-align: center;
@@ -95,11 +95,11 @@
         .draw-btn-grid button:hover, 
         .search-row button:hover, 
         #btnShiftCadastre:hover, 
-        #btnParcelReport:hover:not(:disabled),
+        #btnPlanningReport:hover:not(:disabled),
         .btn-green-style:hover {
             background: #3d3d3d; color: #fff;
         }
-        #btnParcelReport:disabled {
+        #btnPlanningReport:disabled {
             opacity: 0.45;
             cursor: not-allowed;
         }
@@ -305,7 +305,7 @@
             <div class="box-section amber">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div class="section-title">Parcel Inspector</div>
-                    <button type="button" id="btnParcelReport" style="font-size:10px; padding:3px 10px;" title="Use link in parcel report to download and save the Planning Property Report" onclick="openParcelReport()" disabled>Parcel Report</button>
+                    <button type="button" id="btnPlanningReport" style="font-size:10px; padding:3px 10px;" title="Open official Planning Property Report" onclick="openPlanningReport()" disabled>Planning Report</button>
                 </div>
                 <div id="parcelInspectorContent">
                     <div style="font-size: 11px; color: #666; font-style: italic; text-align: center;">Click any parcel to inspect attributes.</div>
@@ -993,15 +993,15 @@
         }
 
         function updateParcelReportButton() {
-            const btn = document.getElementById('btnParcelReport');
+            const btn = document.getElementById('btnPlanningReport');
             if (btn) {
                 btn.disabled = !currentParcelPfi || currentParcelIsProposed;
             }
         }
 
-        function openParcelReport() {
+        function openPlanningReport() {
             if (!currentParcelPfi) return;
-            const url = `https://property-report-api.mapshare.vic.gov.au/?PFI=${encodeURIComponent(currentParcelPfi)}&Type=Parcel&source=propertyportal`;
+            const url = `https://spatial.planning.vic.gov.au/report?PFI=${encodeURIComponent(currentParcelPfi)}&Type=Parcel&source=detailedreport`;
             window.open(url, '_blank', 'noopener');
         }
 
