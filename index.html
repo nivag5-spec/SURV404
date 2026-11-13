@@ -10,6 +10,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <!-- Esri Leaflet for VicPlan Spatial Services -->
+    <script src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
 
     <style>
         body, html {
@@ -91,29 +93,18 @@
             background: #e8a317; color: #111; border-color: #e8a317; font-weight: 700;
         }
 
-        /* Search Styles */
+        /* Unified Search Styles */
         .search-container { position: relative; display: flex; flex-direction: column; }
         .search-row { display: flex; gap: 6px; }
         .search-row input {
             flex-grow: 1; padding: 6px 8px; border: 1px solid #cbd5e1;
-            border-radius: 4px; font-size: 11px; outline: none;
+            border-radius: 4px; font-size: 11px; outline: none; background: white;
         }
         .search-row input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
         .search-row button { padding: 6px 12px; }
 
-        .search-results {
-            position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
-            max-height: 200px; overflow-y: auto; background: white; border: 1px solid #cbd5e1;
-            border-radius: 4px; display: none; flex-direction: column; z-index: 3000;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        }
-        .search-item {
-            padding: 7px 10px; font-size: 11px; border-bottom: 1px solid #f1f5f9;
-            cursor: pointer; color: #1e293b; line-height: 1.3;
-        }
-        .search-item:hover { background: #e2e8f0; color: #0f172a; }
-
-        .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+        /* 2x2 Grid for the 4 consolidated provider buttons */
+        .provider-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
         .draw-btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
         .layer-checkbox-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: #333; }
@@ -123,12 +114,23 @@
         .shift-row { display: flex; gap: 8px; align-items: center; font-size: 11px; font-weight: 600; }
         .shift-row input[type="number"] { width: 65px; padding: 3px 4px; border: 1px solid #ccc; border-radius: 3px; font-weight: 600; }
 
-        /* Labels & Tables */
+        /* Dimension Labels */
         .dim-label {
-            background: rgba(255,255,255,0.92); border: 1px solid #7c3aed; color: #4c1d95;
-            padding: 2px 5px; font-size: 10px; font-weight: bold; font-family: Consolas, monospace;
-            border-radius: 3px; white-space: nowrap; pointer-events: none;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1.5px solid #6d28d9;
+            color: #4c1d95;
+            padding: 3px 7px;
+            font-size: 10.5px;
+            font-weight: 700;
+            font-family: Consolas, monospace;
+            border-radius: 4px;
+            white-space: nowrap;
+            pointer-events: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            display: inline-block;
+            transform: translate(-50%, -50%);
         }
+
         .parcel-table { font-size: 11px; width: 100%; border-collapse: collapse; background: white; }
         .parcel-table th, .parcel-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; word-break: break-all; vertical-align: top; }
         .parcel-table th { background: #f8f9fa; color: #333; width: 38%; font-weight: 600; }
@@ -169,48 +171,58 @@
         <div class="panel-body" id="panelBody">
             <div class="drop-instruction">Drag and drop KML/KMZ files onto the map</div>
 
-            <!-- On-Demand Primary ID Search Section -->
+            <!-- Single Unified Address / Lot\Plan Search Section -->
             <div class="box-section blue">
-                <div class="section-title" style="color: #1d4ed8;">Search Parcel (Primary ID / SPI)</div>
+                <div class="section-title" style="color: #1d4ed8;">Search Location</div>
                 <div class="search-container">
                     <div class="search-row">
-                        <input type="text" id="searchInput" placeholder="e.g. 2118\PS805842" autocomplete="off">
-                        <button onclick="triggerSearchExplicit()">Search</button>
+                        <input type="text" id="searchInput" placeholder="Address or Lot\Plan (e.g. 2118\PS805842 or Smollett St)" autocomplete="off">
+                        <button id="searchBtn" onclick="executeSearch()">Search</button>
                     </div>
-                    <div id="searchResults" class="search-results"></div>
                 </div>
             </div>
 
-            <!-- Imagery Provider Selection Grid -->
+            <!-- Imagery Provider Selection Grid (Static Labels) -->
             <div class="box-section">
-                <div class="section-title">Satellite & Basemap Provider</div>
+                <div class="section-title">Satellite & Basemap Provider <span style="font-weight:400; font-size:10px; color:#666;">(Click to cycle)</span></div>
                 <div class="provider-grid">
-                    <button type="button" data-provider="google" class="active">Google</button>
-                    <button type="button" data-provider="esri">Esri</button>
-                    <button type="button" data-provider="bing">Bing</button>
-                    <button type="button" data-provider="hybrid">Hybrid</button>
-                    <button type="button" data-provider="street">Street</button>
-                    <button type="button" data-provider="nsw">NSW</button>
+                    <button type="button" id="btnGroupGoogle" data-group="google" class="active">Google</button>
+                    <button type="button" id="btnGroupEsri" data-group="esri">Esri</button>
+                    <button type="button" id="btnGroupBing" data-group="bing">Bing</button>
+                    <button type="button" id="btnGroupNsw" data-group="nsw">NSW</button>
                 </div>
                 <div id="lodInfo" style="font-size: 10px; font-weight:700; color:#555;">LOD08 - 61.0cm/px</div>
             </div>
 
             <!-- Vector Layers Section -->
             <div class="box-section">
-                <div class="section-title">Vicmap Vector Layers</div>
-                <div class="layer-checkbox-row">
-                    <label><input type="checkbox" id="cadastreCheckbox" onchange="toggleCadastreLayer()"> Cadastre (VIC)</label>
-                    <button id="btnShiftCadastre" style="font-size:10px; padding:2px 8px;">Shift Cadastre</button>
-                </div>
-                <div class="shift-row">
-                    <span>dE (m):</span><input id="inputDE" type="number" step="0.1" value="0" onchange="onManualShiftChange()">
-                    <span>dN (m):</span><input id="inputDN" type="number" step="0.1" value="0" onchange="onManualShiftChange()">
-                </div>
-                <div class="layer-checkbox-row">
-                    <label><input type="checkbox" id="lotLabelsCheckbox" onchange="toggleLotLabelsLayer()"> Lot labels (SPI)</label>
-                </div>
-                <div class="layer-checkbox-row">
-                    <label><input type="checkbox" id="zonesCheckbox" onchange="toggleZonesLayer()"> Planning Zones</label>
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;">
+                    
+                    <!-- Left Side: Title & Checkboxes -->
+                    <div style="display: flex; flex-direction: column; gap: 6px; flex-grow: 1;">
+                        <div class="section-title" style="margin-bottom: 2px;">VICMap</div>
+                        <div class="layer-checkbox-row">
+                            <label><input type="checkbox" id="cadastreCheckbox" onchange="toggleCadastreLayer()"> Cadastre (VIC)</label>
+                        </div>
+                        <div class="layer-checkbox-row">
+                            <label><input type="checkbox" id="lotLabelsCheckbox" onchange="toggleLotLabelsLayer()"> Lot labels (SPI)</label>
+                        </div>
+                        <div class="layer-checkbox-row">
+                            <label><input type="checkbox" id="zonesCheckbox" onchange="toggleZonesLayer()"> Planning Zones</label>
+                        </div>
+                    </div>
+
+                    <!-- Right Side: Shift Cadastre Button & Inputs Stacked Flush at Top -->
+                    <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
+                        <button id="btnShiftCadastre" style="font-size:10px; padding:4px 10px; width: 100px;">Shift Cadastre</button>
+                        <div class="shift-row" style="font-size: 10px;">
+                            <span>dE (m):</span><input id="inputDE" type="number" step="0.1" value="0" onchange="onManualShiftChange()">
+                        </div>
+                        <div class="shift-row" style="font-size: 10px;">
+                            <span>dN (m):</span><input id="inputDN" type="number" step="0.1" value="0" onchange="onManualShiftChange()">
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -300,7 +312,8 @@
 
         /* Global Layer State Variables */
         let activeTileLayer = null;
-        let activeProvider = "google";
+        let activeProvider = "google_sat";
+        let activeGroup = "google";
         let activeCadastreColour = '#FFFF00'; 
         let cadastreVisible = false, zonesVisible = false, lotLabelsVisible = false;
         let shiftMode = false, shiftFrom = null;
@@ -318,10 +331,27 @@
         const bannerEl = document.getElementById('topBanner');
         L.DomEvent.disableClickPropagation(bannerEl);
 
+        // Provider definitions including Esri Hybrid (Imagery + Reference Overlay)
         const providers = {
-            google: { url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Satellite" },
-            esri: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 18, attribution: "Esri World Imagery" },
+            google_sat:    { label: "Google: Sat",    isStreet: false, url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Satellite" },
+            google_hybrid: { label: "Google: Hybrid", isStreet: false, url: "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Hybrid" },
+            google_street: { label: "Google: Street", isStreet: true,  url: "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Maps" },
+            
+            esri_sat:      { label: "Esri: Sat",      isStreet: false, url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 18, attribution: "Esri World Imagery" },
+            esri_hybrid:   { 
+                label: "Esri: Hybrid",   
+                isStreet: false, 
+                url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                overlayUrl: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+                labelsUrl: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+                maxNativeZoom: 18, 
+                attribution: "Esri Hybrid Imagery" 
+            },
+            esri_street:   { label: "Esri: Street",   isStreet: true,  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 19, attribution: "Esri World Street Map" },
+            
             bing: {
+                label: "Bing",
+                isStreet: false,
                 maxNativeZoom: 19, attribution: "Bing Aerial",
                 tileUrl: (x, y, z) => {
                     let q = "";
@@ -333,9 +363,17 @@
                     return `https://ecn.t0.tiles.virtualearth.net/tiles/a${q}.jpeg?g=14659`;
                 }
             },
-            hybrid: { url: "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Hybrid" },
-            street: { url: "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Maps" },
-            nsw: { url: "https://ti-dcs-tile.img.arcgis.com/arcgis/rest/services/NSWWebImagery/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 22, attribution: "NSW Spatial" }
+            nsw: { label: "NSW", isStreet: false, url: "https://ti-dcs-tile.img.arcgis.com/arcgis/rest/services/NSWWebImagery/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 22, attribution: "NSW Spatial" }
+        };
+
+        // Track cycle sequences and current indices
+        const providerCycles = {
+            google: ["google_sat", "google_hybrid", "google_street"],
+            esri:   ["esri_sat", "esri_hybrid", "esri_street"]
+        };
+        const cycleIndex = {
+            google: 0,
+            esri: 0
         };
 
         function setProvider(key) {
@@ -343,23 +381,51 @@
             if (activeTileLayer) map.removeLayer(activeTileLayer);
             const p = providers[key];
             const opts = { maxZoom: MAP_MAX_ZOOM, maxNativeZoom: p.maxNativeZoom, attribution: p.attribution };
+            
             if (key === 'bing') {
-                activeTileLayer = L.tileLayer('', opts);
-                activeTileLayer.getTileUrl = (coords) => p.tileUrl(coords.x, coords.y, coords.z);
+                const layer = L.tileLayer('', opts);
+                layer.getTileUrl = (coords) => p.tileUrl(coords.x, coords.y, coords.z);
+                activeTileLayer = layer;
+            } else if (key === 'esri_hybrid') {
+                // Combine base imagery with transparent roads & places overlays
+                const base = L.tileLayer(p.url, opts);
+                const roads = L.tileLayer(p.overlayUrl, { maxZoom: MAP_MAX_ZOOM, maxNativeZoom: p.maxNativeZoom, pane: 'overlayPane' });
+                const places = L.tileLayer(p.labelsUrl, { maxZoom: MAP_MAX_ZOOM, maxNativeZoom: p.maxNativeZoom, pane: 'overlayPane' });
+                activeTileLayer = L.layerGroup([base, roads, places]);
             } else {
                 activeTileLayer = L.tileLayer(p.url, opts);
             }
+
             activeTileLayer.addTo(map);
             activeProvider = key;
 
-            activeCadastreColour = (key === 'street') ? '#6C757D' : '#FFFF00';
+            // Adjust cadastre line colour for readability on light street maps
+            activeCadastreColour = p.isStreet ? '#6C757D' : '#FFFF00';
 
-            document.querySelectorAll('.provider-grid button').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.provider === key);
-            });
             updateLod();
-
             if (cadastreVisible) fetchVectorCadastre();
+        }
+
+        function handleProviderClick(group) {
+            const btn = document.querySelector(`.provider-grid button[data-group="${group}"]`);
+            
+            // Highlight active group button
+            document.querySelectorAll('.provider-grid button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            if (providerCycles[group]) {
+                // Advance to next mode if clicking the already active button
+                if (activeGroup === group) {
+                    cycleIndex[group] = (cycleIndex[group] + 1) % providerCycles[group].length;
+                }
+                const targetKey = providerCycles[group][cycleIndex[group]];
+                activeGroup = group;
+                setProvider(targetKey);
+            } else {
+                // Standard single-state button (Bing / NSW)
+                activeGroup = group;
+                setProvider(group);
+            }
         }
 
         function updateLod() {
@@ -369,11 +435,12 @@
             document.getElementById("lodInfo").textContent = `LOD${String(z).padStart(2, '0')} - ${(res * 100).toFixed(1)}cm/px`;
         }
 
-        setProvider("google");
+        // Initialize default provider
+        setProvider("google_sat");
         document.querySelectorAll('.provider-grid button').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                setProvider(btn.dataset.provider);
+                handleProviderClick(btn.dataset.group);
             });
         });
 
@@ -394,11 +461,16 @@
         const zonesVectorGroup = L.layerGroup().addTo(map);
         const lotLabelsVectorGroup = L.layerGroup().addTo(map);
         const highlightLayerGroup = L.layerGroup().addTo(map);
+        let parcelPolygon = null;
+        const vicParcelServiceUrl = 'https://plan-gis.mapshare.vic.gov.au/arcgis/rest/services/Planning/VicPlan_PropertyAndParcel/MapServer/4';
 
         function toggleCadastreLayer() {
             cadastreVisible = document.getElementById('cadastreCheckbox').checked;
             if (cadastreVisible && map.getZoom() >= 13) fetchVectorCadastre();
-            else { cadastreVectorGroup.clearLayers(); highlightLayerGroup.clearLayers(); }
+            else { 
+                cadastreVectorGroup.clearLayers(); 
+                clearParcelInspector("Click any parcel to inspect attributes.");
+            }
         }
 
         function toggleZonesLayer() {
@@ -441,9 +513,10 @@
         }
 
         function onManualShiftChange() {
-            if (cadastreVisible) fetchVectorCadastre();
-            if (lotLabelsVisible) fetchVectorLotLabels();
-        }
+    clearParcelInspector("Cadastre shifted — click a parcel to inspect.");
+    if (cadastreVisible) fetchVectorCadastre();
+    if (lotLabelsVisible) fetchVectorLotLabels();
+}
 
         async function fetchVectorCadastre() {
             if (!cadastreVisible || map.getZoom() < 13) {
@@ -586,111 +659,106 @@
             } catch (err) { console.warn("Lot labels error:", err); }
         }
 
-        /* ON-DEMAND PRIMARY ID SEARCH ENGINE (v098) */
+        /* AUTO-DETECTING UNIFIED SEARCH ENGINE */
         const searchInput = document.getElementById('searchInput');
-        const resultsBox = document.getElementById('searchResults');
-
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('.search-container')) {
-                resultsBox.style.display = 'none';
-            }
-        });
 
         searchInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') resultsBox.style.display = 'none';
             if (e.key === 'Enter') {
-                triggerSearchExplicit();
+                e.preventDefault();
+                executeSearch();
             }
         });
 
-        function queryWfsJsonp(params) {
-            return new Promise((resolve, reject) => {
-                const cbName = 'vicwfs_cb_' + Math.round(Math.random() * 1000000);
-                params.set('outputFormat', 'text/javascript');
-                params.set('format_options', `callback:${cbName}`);
+        function executeSearch() {
+            const query = searchInput.value.trim();
+            if (!query) return;
 
-                window[cbName] = function(data) {
-                    delete window[cbName];
-                    if (script.parentNode) script.parentNode.removeChild(script);
-                    resolve(data);
-                };
+            // Clear any previous parcel highlight, red SPI boundary, and inspector table
+            clearParcelInspector("Searching...");
 
-                const script = document.createElement('script');
-                script.src = `https://opendata.maps.vic.gov.au/geoserver/wfs?${params.toString()}`;
-                script.onerror = function(err) {
-                    delete window[cbName];
-                    if (script.parentNode) script.parentNode.removeChild(script);
-                    reject(err);
-                };
-                document.body.appendChild(script);
-            });
-        }
-
-        async function fetchVicmapPrimaryIdSearch(q) {
-            resultsBox.style.display = 'flex';
-            resultsBox.innerHTML = `<div class="search-item" style="font-style:italic; color:#666;">Querying Vicmap...</div>`;
-
-            try {
-                const rawQ = q.trim().toUpperCase();
-                const safeQ = rawQ.replace(/\\/g, '\\\\').replace(/'/g, "''");
-
-                // Query strictly on SPI fields
-                const parcelParams = new URLSearchParams({
-                    service: 'WFS', 
-                    version: '1.0.0', 
-                    request: 'GetFeature',
-                    typeName: 'open-data-platform:v_parcel_mp',
-                    cql_filter: `spi = '${safeQ}' OR parcel_spi = '${safeQ}' OR spi LIKE '%${safeQ}%' OR parcel_spi LIKE '%${safeQ}%'`,
-                    maxFeatures: '5'
-                });
-
-                const data = await queryWfsJsonp(parcelParams);
-
-                if (!data || !data.features || data.features.length === 0) {
-                    resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Parcel not found</div>`;
-                    return;
-                }
-
-                resultsBox.innerHTML = '';
-                data.features.forEach(feat => {
-                    const p = feat.properties;
-                    const spi = p.spi || p.SPI || p.parcel_spi || 'Parcel';
-                    
-                    const boundsLayer = L.geoJSON(feat);
-                    const center = boundsLayer.getBounds().getCenter();
-                    const zone = zoneFromLon(center.lng);
-                    const mga = lonLatToMGA(center.lng, center.lat, zone);
-
-                    const el = document.createElement('div');
-                    el.className = 'search-item';
-                    el.innerHTML = `<strong>${spi}</strong><br><span style="color:#2563eb; font-family:Consolas,monospace;">E: ${mga.E.toFixed(3)}, N: ${mga.N.toFixed(3)} (MGA55)</span>`;
-
-                    el.onclick = () => {
-                        resultsBox.style.display = 'none';
-                        searchInput.value = spi;
-
-                        if (!cadastreVisible) {
-                            document.getElementById('cadastreCheckbox').checked = true;
-                            toggleCadastreLayer();
-                        }
-
-                        map.flyTo(center, 18, { duration: 1.2 });
-                        handleMapClick(center);
-                        selectParcel(p, feat);
-                    };
-                    resultsBox.appendChild(el);
-                });
-
-            } catch (err) {
-                console.warn("Search error:", err);
-                resultsBox.innerHTML = `<div class="search-item" style="color:#dc2626;">Search request failed</div>`;
+            if (query.includes('\\')) {
+                searchVicPlanSPI(query.toUpperCase());
+            } else {
+                searchStreetAddress(query);
             }
         }
 
-        function triggerSearchExplicit() {
-            const val = searchInput.value.trim();
-            if (val.length >= 2) {
-                fetchVicmapPrimaryIdSearch(val);
+        function searchVicPlanSPI(spi) {
+            const btn = document.getElementById('searchBtn');
+            btn.textContent = 'Searching...';
+            btn.disabled = true;
+
+            L.esri.query({ url: vicParcelServiceUrl })
+                .where(`PARCEL_SPI = '${spi}'`)
+                .run(function (error, featureCollection) {
+                    btn.textContent = 'Search';
+                    btn.disabled = false;
+
+                    if (error) {
+                        console.error('VicPlan Query Error:', error);
+                        clearParcelInspector("Error querying VicPlan service.");
+                        alert('Error querying VicPlan service.');
+                        return;
+                    }
+
+                    if (featureCollection && featureCollection.features.length > 0) {
+                        const feature = featureCollection.features[0];
+                        
+                        parcelPolygon = L.geoJSON(feature, {
+                            style: {
+                                color: '#d93025',
+                                weight: 3,
+                                fillOpacity: 0.25
+                            }
+                        }).addTo(map);
+
+                        const bounds = parcelPolygon.getBounds();
+                        map.flyToBounds(bounds, { padding: [50, 50], maxZoom: 18, duration: 1.2 });
+
+                        const center = bounds.getCenter();
+                        const props = feature.properties;
+                        
+                        handleMapClick(center);
+                        selectParcel(props, feature);
+                    } else {
+                        clearParcelInspector(`Lot\\Plan "${spi}" not found.`);
+                        alert(`Lot\\Plan "${spi}" not found in VicPlan database.`);
+                    }
+                });
+        }
+
+        async function searchStreetAddress(address) {
+            const btn = document.getElementById('searchBtn');
+            btn.textContent = 'Searching...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`, {
+                    headers: { 'User-Agent': 'AddressMapViewerApp/1.0' }
+                });
+                const data = await response.json();
+
+                btn.textContent = 'Search';
+                btn.disabled = false;
+
+                if (data && data.length > 0) {
+                    const lat = parseFloat(data[0].lat);
+                    const lon = parseFloat(data[0].lon);
+                    const center = L.latLng(lat, lon);
+
+                    map.flyTo(center, 17, { duration: 1.5 });
+                    handleMapClick(center);
+                    clearParcelInspector("Street address location selected.");
+                } else {
+                    clearParcelInspector("Address not found.");
+                    alert('Address not found. Try including a suburb or postcode.');
+                }
+            } catch (error) {
+                btn.textContent = 'Search';
+                btn.disabled = false;
+                console.error('Address search error:', error);
+                clearParcelInspector("Error searching for address.");
+                alert('Error searching for address.');
             }
         }
 
@@ -764,11 +832,20 @@
                     document.getElementById("bannerText").textContent = "Now click the CORRECT location on the imagery";
                 } else {
                     const shiftTo = lonLatToMGA(e.latlng.lng, e.latlng.lat, zone);
-                    const dE = shiftTo.E - shiftFrom.E;
-                    const dN = shiftTo.N - shiftFrom.N;
+                    
+                    // Calculate the incremental movement from the two clicks
+                    const incrementalDE = shiftTo.E - shiftFrom.E;
+                    const incrementalDN = shiftTo.N - shiftFrom.N;
 
-                    document.getElementById("inputDE").value = dE.toFixed(2);
-                    document.getElementById("inputDN").value = dN.toFixed(2);
+                    // Add to the existing shift values already in the boxes
+                    const currentDE = parseFloat(document.getElementById("inputDE").value) || 0;
+                    const currentDN = parseFloat(document.getElementById("inputDN").value) || 0;
+
+                    const totalDE = currentDE + incrementalDE;
+                    const totalDN = currentDN + incrementalDN;
+
+                    document.getElementById("inputDE").value = totalDE.toFixed(2);
+                    document.getElementById("inputDN").value = totalDN.toFixed(2);
 
                     exitShiftMode(true);
                 }
@@ -777,7 +854,12 @@
 
             handleMapClick(e.latlng);
 
-            if (!activeDrawMode) return;
+            // Clear parcel highlight and inspector when clicking non-parcel areas
+            if (!activeDrawMode) {
+                clearParcelInspector("No parcel data at selected location.");
+                return;
+            }
+
             currentDrawPts.push(e.latlng);
             if (activeDrawMode === 'line') {
                 if (!activeTempShape) activeTempShape = L.polyline(currentDrawPts, { color: '#7c3aed', weight: 3 }).addTo(drawnFeaturesGroup);
@@ -823,6 +905,16 @@
             lastClickCoords = latlng;
             if (lastClickMarker) map.removeLayer(lastClickMarker);
             lastClickMarker = L.marker(latlng).addTo(map);
+        }
+
+        function clearParcelInspector(message = "Click any parcel to inspect attributes.") {
+            highlightLayerGroup.clearLayers();
+            if (parcelPolygon) {
+                map.removeLayer(parcelPolygon);
+                parcelPolygon = null;
+            }
+            document.getElementById('parcelInspectorContent').innerHTML = 
+                `<div style="font-size: 11px; color: #666; font-style: italic; text-align: center;">${message}</div>`;
         }
 
         async function fetchAddress(featureGeometry) {
@@ -876,7 +968,7 @@
             if (featureGeometry) {
                 L.geoJSON(featureGeometry, { style: { color: '#FFD700', weight: 3, fillColor: '#FFD700', fillOpacity: 0.25 } }).addTo(highlightLayerGroup);
             }
-            const primaryIdentifier = (props && (props.spi || props.SPI || props.parcel_spi)) || "N/A";
+            const primaryIdentifier = (props && (props.spi || props.SPI || props.parcel_spi || props.PARCEL_SPI)) || "N/A";
             renderInspectorBox(primaryIdentifier, "Fetching address...", props || {});
 
             if (!props) return;
@@ -889,8 +981,8 @@
             const formattedAddr = formatSplitAddress(streetAddress);
 
             const keyMappings = [
-                { label: 'LOT NUMBER', keys: ['parcel_lot_number'] },
-                { label: 'PLAN NUMBER', keys: ['parcel_plan_number'] },
+                { label: 'LOT NUMBER', keys: ['parcel_lot_number', 'PARCEL_LOT_NUMBER'] },
+                { label: 'PLAN NUMBER', keys: ['parcel_plan_number', 'PARCEL_PLAN_NUMBER'] },
                 { label: 'FURTHER DESC', keys: ['parcel_further_description'] },
                 { label: 'ALLOTMENT', keys: ['parcel_allotment'] },
                 { label: 'SEC', keys: ['parcel_sec'] }
