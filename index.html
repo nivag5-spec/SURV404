@@ -147,6 +147,27 @@
             transform: translate(-50%, -50%);
         }
 
+        /* Draggable Vertex Handles */
+        .vertex-handle {
+            width: 11px;
+            height: 11px;
+            background: #ffffff;
+            border: 2.5px solid #7c3aed;
+            border-radius: 50%;
+            cursor: move;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+            box-sizing: border-box;
+        }
+        .vertex-handle:hover {
+            background: #e8a317;
+            border-color: #111;
+            transform: scale(1.25);
+        }
+
+        @media print {
+            .vertex-handle { display: none !important; }
+        }
+
         /* KML Point Marker Labels */
         .kml-point-label {
             background: rgba(255, 255, 255, 0.92);
@@ -298,7 +319,17 @@
                     <button onclick="undoDrawPoint()">Undo Pt</button>
                     <button onclick="clearDrawings()">Clear All</button>
                 </div>
-                <div id="drawStatus" style="font-size: 10px; color: #6d28d9; font-style: italic;">Select a tool to begin.</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                    <div id="drawStatus" style="font-size: 10px; color: #6d28d9; font-style: italic; flex-grow: 1;">Select a tool to begin.</div>
+                    <div style="display: flex; gap: 8px; font-size: 11px; font-weight: 600; color: #4c1d95; flex-shrink: 0;">
+                        <label style="cursor: pointer; display: flex; align-items: center; gap: 3px;">
+                            <input type="checkbox" id="chkShowDist" checked onchange="toggleDimensionVisibility()"> Distance
+                        </label>
+                        <label style="cursor: pointer; display: flex; align-items: center; gap: 3px;">
+                            <input type="checkbox" id="chkShowArea" checked onchange="toggleAreaVisibility()"> Area
+                        </label>
+                    </div>
+                </div>
             </div>
 
             <!-- Parcel Inspector -->
@@ -876,18 +907,56 @@
             onManualShiftChange();
         }
 
-        /* Drawing & Dimension Engine */
-        let activeDrawMode = null, currentDrawPts = [];
-        let activeTempShape = null;
+        /* Drawing, Editing & Dimension Engine */
+        let activeDrawMode = null;
+        let activeShapeObj = null;
+        const drawnShapes = [];
+
         const drawnFeaturesGroup = L.layerGroup().addTo(map);
         const dimensionLabelsGroup = L.layerGroup().addTo(map);
+        const areaLabelsGroup = L.layerGroup().addTo(map);
+        const vertexHandlesGroup = L.layerGroup().addTo(map);
+
+        function updateDrawPrompt() {
+            const statusEl = document.getElementById('drawStatus');
+            if (!activeDrawMode) {
+                statusEl.textContent = 'Select a tool to begin.';
+                return;
+            }
+
+            const count = activeShapeObj ? activeShapeObj.pts.length : 0;
+            if (activeDrawMode === 'line') {
+                if (count === 0) statusEl.textContent = 'Click map to start line.';
+                else if (count === 1) statusEl.textContent = 'Click next point.';
+                else statusEl.textContent = "Click to add, or 'Stop Line' to finish.";
+            } else if (activeDrawMode === 'polygon') {
+                if (count === 0) statusEl.textContent = 'Click map to start poly.';
+                else if (count < 3) statusEl.textContent = `Add ${3 - count} more pt${3 - count === 1 ? '' : 's'}.`;
+                else statusEl.textContent = "Click to add, or 'Stop Poly' to finish.";
+            }
+        }
 
         function setDrawMode(mode) {
+            // Clicking the active button ("Stop Line" / "Stop Poly") finishes the figure
+            if (activeDrawMode === mode) {
+                finishDrawing();
+                return;
+            }
+
             finishDrawing();
             activeDrawMode = mode;
-            document.getElementById('btnDrawLine').classList.toggle('active', mode === 'line');
-            document.getElementById('btnDrawPoly').classList.toggle('active', mode === 'polygon');
+
+            const btnLine = document.getElementById('btnDrawLine');
+            const btnPoly = document.getElementById('btnDrawPoly');
+
+            btnLine.classList.toggle('active', mode === 'line');
+            btnPoly.classList.toggle('active', mode === 'polygon');
+
+            btnLine.textContent = (mode === 'line') ? 'Stop Line' : 'Draw Line';
+            btnPoly.textContent = (mode === 'polygon') ? 'Stop Poly' : 'Draw Poly';
+
             map.getContainer().style.cursor = mode ? 'crosshair' : '';
+            updateDrawPrompt();
         }
 
         function latLngToMGA55(latlng) {
@@ -900,23 +969,157 @@
             return Math.hypot(m2.easting - m1.easting, m2.northing - m1.northing);
         }
 
-        function renderDimensionLabels(latlngs, isClosed) {
-            dimensionLabelsGroup.clearLayers();
-            if (latlngs.length < 2) return;
-            const total = latlngs.length;
-            const segments = isClosed ? total : total - 1;
-            for (let i = 0; i < segments; i++) {
-                const p1 = latlngs[i], p2 = latlngs[(i + 1) % total];
-                const dist = computeMGA2020Distance(p1, p2);
-                if (dist < 0.05) continue;
-                const mid = [(p1.lat + p2.lat) / 2, (p1.lng + p2.lng) / 2];
-                const icon = L.divIcon({
-                    className: 'dimension-marker',
-                    html: `<div class="dim-label">${dist.toFixed(1)} m</div>`,
-                    iconSize: [0, 0]
-                });
-                L.marker(mid, { icon, interactive: false }).addTo(dimensionLabelsGroup);
+        function computeMGA2020Area(latlngs) {
+            if (latlngs.length < 3) return 0;
+            const pts = latlngs.map(latLngToMGA55);
+            let sum = 0;
+            for (let i = 0; i < pts.length; i++) {
+                const j = (i + 1) % pts.length;
+                sum += pts[i].easting * pts[j].northing;
+                sum -= pts[j].easting * pts[i].northing;
             }
+            return Math.abs(sum) / 2;
+        }
+
+        function computeGeoJsonArea(featureGeometry) {
+            if (!featureGeometry) return null;
+            const geom = featureGeometry.type === 'Feature' ? featureGeometry.geometry : featureGeometry;
+            if (!geom || !geom.coordinates) return null;
+
+            function ringArea(ring) {
+                const latlngs = ring.map(c => L.latLng(c[1], c[0]));
+                return computeMGA2020Area(latlngs);
+            }
+
+            let totalArea = 0;
+            if (geom.type === 'Polygon') {
+                if (geom.coordinates.length > 0) {
+                    totalArea += ringArea(geom.coordinates[0]);
+                    for (let i = 1; i < geom.coordinates.length; i++) {
+                        totalArea -= ringArea(geom.coordinates[i]); // Subtract inner holes if any
+                    }
+                }
+            } else if (geom.type === 'MultiPolygon') {
+                geom.coordinates.forEach(poly => {
+                    if (poly.length > 0) {
+                        totalArea += ringArea(poly[0]);
+                        for (let i = 1; i < poly.length; i++) {
+                            totalArea -= ringArea(poly[i]);
+                        }
+                    }
+                });
+            }
+            return totalArea > 0 ? totalArea : null;
+        }
+
+        
+        function toggleDimensionVisibility() {
+            const show = document.getElementById('chkShowDist').checked;
+            if (show) {
+                if (!map.hasLayer(dimensionLabelsGroup)) map.addLayer(dimensionLabelsGroup);
+            } else {
+                if (map.hasLayer(dimensionLabelsGroup)) map.removeLayer(dimensionLabelsGroup);
+            }
+        }
+
+        function toggleAreaVisibility() {
+            const show = document.getElementById('chkShowArea').checked;
+            if (show) {
+                if (!map.hasLayer(areaLabelsGroup)) map.addLayer(areaLabelsGroup);
+            } else {
+                if (map.hasLayer(areaLabelsGroup)) map.removeLayer(areaLabelsGroup);
+            }
+        }
+
+        function updateShapeVisuals(obj) {
+            const pts = obj.pts;
+
+            if (obj.shape) {
+                obj.shape.setLatLngs(pts);
+            }
+
+            // 1. Rebuild dimension labels
+            obj.dimLabels.forEach(m => dimensionLabelsGroup.removeLayer(m));
+            obj.dimLabels = [];
+
+            const isClosed = (obj.type === 'polygon' && pts.length >= 3);
+            if (pts.length >= 2) {
+                const total = pts.length;
+                const segments = isClosed ? total : total - 1;
+                for (let i = 0; i < segments; i++) {
+                    const p1 = pts[i], p2 = pts[(i + 1) % total];
+                    const dist = computeMGA2020Distance(p1, p2);
+                    if (dist < 0.05) continue;
+
+                    // Calculate screen angle from MGA2020 grid delta (Y is inverted in CSS)
+                    const m1 = latLngToMGA55(p1), m2 = latLngToMGA55(p2);
+                    let angleDeg = Math.atan2(-(m2.northing - m1.northing), m2.easting - m1.easting) * (180 / Math.PI);
+
+                    // Keep text right-side-up (never upside down)
+                    if (angleDeg > 90) angleDeg -= 180;
+                    if (angleDeg < -90) angleDeg += 180;
+
+                    const mid = [(p1.lat + p2.lat) / 2, (p1.lng + p2.lng) / 2];
+                    const icon = L.divIcon({
+                        className: 'dimension-marker',
+                        html: `<div class="dim-label" style="transform: translate(-50%, -125%) rotate(${angleDeg.toFixed(1)}deg);">${dist.toFixed(1)} m</div>`,
+                        iconSize: [0, 0]
+                    });
+                    const m = L.marker(mid, { icon, interactive: false }).addTo(dimensionLabelsGroup);
+                    obj.dimLabels.push(m);
+                }
+            }
+
+            // 2. Rebuild polygon area label (nearest whole square meter)
+            if (obj.type === 'polygon') {
+                if (obj.areaMarker) {
+                    areaLabelsGroup.removeLayer(obj.areaMarker);
+                    obj.areaMarker = null;
+                }
+
+                if (pts.length >= 3) {
+                    const sqMeters = Math.round(computeMGA2020Area(pts));
+                    const areaText = sqMeters >= 10000
+                        ? `${(sqMeters / 10000).toFixed(4)} ha`
+                        : `${sqMeters} m²`;
+
+                    const center = L.polygon(pts).getBounds().getCenter();
+                    const icon = L.divIcon({
+                        className: 'area-marker',
+                        html: `<div class="dim-label" style="background:#4c1d95; color:#fff; border-color:#fff;">${areaText}</div>`,
+                        iconSize: [0, 0]
+                    });
+
+                    obj.areaMarker = L.marker(center, { icon, interactive: false }).addTo(areaLabelsGroup);
+                }
+            }
+        }
+
+        function rebuildVertexHandles(obj) {
+            obj.handles.forEach(h => vertexHandlesGroup.removeLayer(h));
+            obj.handles = [];
+
+            obj.pts.forEach((pt, idx) => {
+                const handleIcon = L.divIcon({
+                    className: 'vertex-handle',
+                    iconSize: [11, 11],
+                    iconAnchor: [5.5, 5.5]
+                });
+
+                const marker = L.marker(pt, {
+                    icon: handleIcon,
+                    draggable: true
+                }).addTo(vertexHandlesGroup);
+
+                marker.on('click', (e) => L.DomEvent.stopPropagation(e));
+
+                marker.on('drag', (e) => {
+                    obj.pts[idx] = e.target.getLatLng();
+                    updateShapeVisuals(obj);
+                });
+
+                obj.handles.push(marker);
+            });
         }
 
         map.on('click', (e) => {
@@ -945,41 +1148,61 @@
                 return;
             }
 
-            currentDrawPts.push(e.latlng);
-            if (activeDrawMode === 'line') {
-                if (!activeTempShape) activeTempShape = L.polyline(currentDrawPts, { color: '#7c3aed', weight: 3 }).addTo(drawnFeaturesGroup);
-                else activeTempShape.setLatLngs(currentDrawPts);
-                renderDimensionLabels(currentDrawPts, false);
-            } else if (activeDrawMode === 'polygon') {
-                if (!activeTempShape) activeTempShape = L.polygon(currentDrawPts, { color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 0.2, weight: 3 }).addTo(drawnFeaturesGroup);
-                else activeTempShape.setLatLngs(currentDrawPts);
-                renderDimensionLabels(currentDrawPts, currentDrawPts.length >= 3);
+            if (!activeShapeObj) {
+                activeShapeObj = {
+                    type: activeDrawMode,
+                    pts: [],
+                    shape: null,
+                    dimLabels: [],
+                    areaMarker: null,
+                    handles: []
+                };
+                drawnShapes.push(activeShapeObj);
             }
+
+            activeShapeObj.pts.push(e.latlng);
+
+            if (!activeShapeObj.shape) {
+                activeShapeObj.shape = activeDrawMode === 'line'
+                    ? L.polyline(activeShapeObj.pts, { color: '#7c3aed', weight: 3 }).addTo(drawnFeaturesGroup)
+                    : L.polygon(activeShapeObj.pts, { color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 0.2, weight: 3 }).addTo(drawnFeaturesGroup);
+            }
+
+            updateShapeVisuals(activeShapeObj);
+            rebuildVertexHandles(activeShapeObj);
+            updateDrawPrompt();
         });
 
-        map.on('dblclick', (e) => {
-            if (!activeDrawMode) return;
-            L.DomEvent.stopPropagation(e);
-            finishDrawing();
-        });
+       function finishDrawing() {
+            activeShapeObj = null;
+            activeDrawMode = null;
 
-        function finishDrawing() {
-            currentDrawPts = []; activeTempShape = null; activeDrawMode = null;
-            document.getElementById('btnDrawLine').classList.remove('active');
-            document.getElementById('btnDrawPoly').classList.remove('active');
+            const btnLine = document.getElementById('btnDrawLine');
+            const btnPoly = document.getElementById('btnDrawPoly');
+
+            btnLine.classList.remove('active');
+            btnPoly.classList.remove('active');
+            btnLine.textContent = 'Draw Line';
+            btnPoly.textContent = 'Draw Poly';
+
             map.getContainer().style.cursor = '';
+            updateDrawPrompt();
         }
 
         function undoDrawPoint() {
-            if (!currentDrawPts.length) return;
-            currentDrawPts.pop();
-            if (activeTempShape) activeTempShape.setLatLngs(currentDrawPts);
-            renderDimensionLabels(currentDrawPts, activeDrawMode === 'polygon');
+            if (!activeShapeObj || !activeShapeObj.pts.length) return;
+            activeShapeObj.pts.pop();
+            updateShapeVisuals(activeShapeObj);
+            rebuildVertexHandles(activeShapeObj);
+            updateDrawPrompt();
         }
 
         function clearDrawings() {
             drawnFeaturesGroup.clearLayers();
             dimensionLabelsGroup.clearLayers();
+            areaLabelsGroup.clearLayers();
+            vertexHandlesGroup.clearLayers();
+            drawnShapes.length = 0;
             finishDrawing();
         }
 
@@ -1079,15 +1302,17 @@
             updateParcelReportButton();
 
             const primaryIdentifier = (props && (props.spi || props.SPI || props.parcel_spi || props.PARCEL_SPI)) || "N/A";
-            renderInspectorBox(primaryIdentifier, "Fetching address...", props || {});
+            const parcelAreaSqM = computeGeoJsonArea(featureGeometry);
+
+            renderInspectorBox(primaryIdentifier, "Fetching address...", props || {}, parcelAreaSqM);
 
             if (!props) return;
 
             const addressResult = await fetchAddress(featureGeometry);
-            renderInspectorBox(primaryIdentifier, addressResult, props);
+            renderInspectorBox(primaryIdentifier, addressResult, props, parcelAreaSqM);
         }
 
-        function renderInspectorBox(primaryIdentifier, streetAddress, props) {
+        function renderInspectorBox(primaryIdentifier, streetAddress, props, parcelAreaSqM = null) {
             const formattedAddr = formatSplitAddress(streetAddress);
 
             const keyMappings = [
@@ -1125,6 +1350,14 @@
                     if (item.keys) item.keys.forEach(k => renderedKeys.add(k));
                 }
             });
+
+            if (parcelAreaSqM !== null) {
+                const roundedSqM = Math.round(parcelAreaSqM);
+                const areaDisplay = roundedSqM >= 10000
+                    ? `${(roundedSqM / 10000).toFixed(4)} ha (${roundedSqM} m²)`
+                    : `${roundedSqM} m²`;
+                htmlRows += `<tr><th>AREA ESTIMATE</th><td>${areaDisplay}</td></tr>`;
+            }
 
             for (let key in props) {
                 if (key.startsWith('_')) continue;
