@@ -119,8 +119,8 @@
         .search-row input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
         .search-row button { padding: 6px 12px; }
 
-        /* 2x2 Grid for the 4 consolidated provider buttons */
-        .provider-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+        /* Single row for the 3 consolidated provider buttons */
+        .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
         .draw-btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
         .layer-checkbox-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: #333; }
@@ -263,14 +263,16 @@
                 </div>
             </div>
 
-            <!-- Imagery Provider Selection Grid (Static Labels) -->
+            <!-- Imagery Provider Selection Grid (Single Row) -->
             <div class="box-section">
-                <div class="section-title">Satellite & Basemap Provider <span style="font-weight:400; font-size:10px; color:#666;">(Click to cycle)</span></div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <div class="section-title">Satellite & Basemap Provider <span style="font-weight:400; font-size:10px; color:#666;">(Click to cycle)</span></div>
+                    <span id="activeBasemapLabel" style="font-size: 10px; font-weight: 700; color: #4c1d95;">Google: Sat</span>
+                </div>
                 <div class="provider-grid">
                     <button type="button" id="btnGroupGoogle" data-group="google" class="active">Google</button>
                     <button type="button" id="btnGroupEsri" data-group="esri">Esri</button>
-                    <button type="button" id="btnGroupBing" data-group="bing">Bing</button>
-                    <button type="button" id="btnGroupNsw" data-group="nsw">NSW</button>
+                    <button type="button" id="btnGroupBingNsw" data-group="bingnsw">Bing / NSW</button>
                 </div>
                 <div id="lodInfo" style="font-size: 10px; font-weight:700; color:#555;">LOD08 - 61.0cm/px</div>
             </div>
@@ -410,6 +412,18 @@
 
         function zoneFromLon(lon) { return Math.floor((lon + 180) / 6) + 1; }
 
+        function quadKey(x, y, z) {
+            let q = "";
+            for (let i = z; i > 0; i--) {
+                let digit = 0;
+                const mask = 1 << (i - 1);
+                if ((x & mask) !== 0) digit++;
+                if ((y & mask) !== 0) digit += 2;
+                q += digit;
+            }
+            return q;
+        }
+
         /* Global Layer State Variables */
         let activeTileLayer = null;
         let activeProvider = "google_sat";
@@ -434,7 +448,7 @@
         const bannerEl = document.getElementById('topBanner');
         L.DomEvent.disableClickPropagation(bannerEl);
 
-        // Provider definitions including Esri Hybrid (Imagery + Reference Overlay)
+        // Provider definitions including Bing Sat/Road + NSW Imagery
         const providers = {
             google_sat:    { label: "Google: Sat",    isStreet: false, url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Satellite" },
             google_hybrid: { label: "Google: Hybrid", isStreet: false, url: "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", maxNativeZoom: 21, attribution: "Google Hybrid" },
@@ -452,31 +466,39 @@
             },
             esri_street:   { label: "Esri: Street",   isStreet: true,  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 19, attribution: "Esri World Street Map" },
             
-            bing: {
-                label: "Bing",
+            bing_sat: {
+                label: "Bing: Sat",
                 isStreet: false,
-                maxNativeZoom: 19, attribution: "Bing Aerial",
-                tileUrl: (x, y, z) => {
-                    let q = "";
-                    for (let i = z; i > 0; i--) {
-                        let digit = 0; const mask = 1 << (i - 1);
-                        if ((x & mask) !== 0) digit++; if ((y & mask) !== 0) digit += 2;
-                        q += digit;
-                    }
-                    return `https://ecn.t0.tiles.virtualearth.net/tiles/a${q}.jpeg?g=14659`;
-                }
+                maxNativeZoom: 19,
+                attribution: "Bing Aerial",
+                tileUrl: (x, y, z) => `https://ecn.t0.tiles.virtualearth.net/tiles/a${quadKey(x, y, z)}.jpeg?g=14659`
             },
-            nsw: { label: "NSW", isStreet: false, url: "https://ti-dcs-tile.img.arcgis.com/arcgis/rest/services/NSWWebImagery/MapServer/tile/{z}/{y}/{x}", maxNativeZoom: 22, attribution: "NSW Spatial" }
+            bing_road: {
+                label: "Bing: Street",
+                isStreet: true,
+                maxNativeZoom: 19,
+                attribution: "Bing Road",
+                tileUrl: (x, y, z) => `https://ecn.t0.tiles.virtualearth.net/tiles/r${quadKey(x, y, z)}.png?g=14659`
+            },
+            nsw: {
+                label: "NSW: Imagery",
+                isStreet: false,
+                url: "https://ti-dcs-tile.img.arcgis.com/arcgis/rest/services/NSWWebImagery/MapServer/tile/{z}/{y}/{x}",
+                maxNativeZoom: 22,
+                attribution: "NSW Spatial"
+            }
         };
 
         // Track cycle sequences and current indices
         const providerCycles = {
-            google: ["google_sat", "google_hybrid", "google_street"],
-            esri:   ["esri_sat", "esri_hybrid", "esri_street"]
+            google:  ["google_sat", "google_hybrid", "google_street"],
+            esri:    ["esri_sat", "esri_hybrid", "esri_street"],
+            bingnsw: ["bing_sat", "bing_road", "nsw"]
         };
         const cycleIndex = {
             google: 0,
-            esri: 0
+            esri: 0,
+            bingnsw: 0
         };
 
         function setProvider(key) {
@@ -485,7 +507,7 @@
             const p = providers[key];
             const opts = { maxZoom: MAP_MAX_ZOOM, maxNativeZoom: p.maxNativeZoom, attribution: p.attribution };
             
-            if (key === 'bing') {
+            if (typeof p.tileUrl === 'function') {
                 const layer = L.tileLayer('', opts);
                 layer.getTileUrl = (coords) => p.tileUrl(coords.x, coords.y, coords.z);
                 activeTileLayer = layer;
@@ -501,6 +523,9 @@
             activeTileLayer.addTo(map);
             activeProvider = key;
             activeCadastreColour = p.isStreet ? '#6C757D' : '#FFFF00';
+
+            const labelEl = document.getElementById("activeBasemapLabel");
+            if (labelEl) labelEl.textContent = p.label;
 
             updateLod();
             if (cadastreVisible || includeProposed) fetchVectorCadastre();
@@ -937,7 +962,6 @@
         }
 
         function setDrawMode(mode) {
-            // Clicking the active button ("Stop Line" / "Stop Poly") finishes the figure
             if (activeDrawMode === mode) {
                 finishDrawing();
                 return;
@@ -996,7 +1020,7 @@
                 if (geom.coordinates.length > 0) {
                     totalArea += ringArea(geom.coordinates[0]);
                     for (let i = 1; i < geom.coordinates.length; i++) {
-                        totalArea -= ringArea(geom.coordinates[i]); // Subtract inner holes if any
+                        totalArea -= ringArea(geom.coordinates[i]);
                     }
                 }
             } else if (geom.type === 'MultiPolygon') {
@@ -1012,7 +1036,6 @@
             return totalArea > 0 ? totalArea : null;
         }
 
-        
         function toggleDimensionVisibility() {
             const show = document.getElementById('chkShowDist').checked;
             if (show) {
@@ -1038,7 +1061,6 @@
                 obj.shape.setLatLngs(pts);
             }
 
-            // 1. Rebuild dimension labels
             obj.dimLabels.forEach(m => dimensionLabelsGroup.removeLayer(m));
             obj.dimLabels = [];
 
@@ -1051,11 +1073,9 @@
                     const dist = computeMGA2020Distance(p1, p2);
                     if (dist < 0.05) continue;
 
-                    // Calculate screen angle from MGA2020 grid delta (Y is inverted in CSS)
                     const m1 = latLngToMGA55(p1), m2 = latLngToMGA55(p2);
                     let angleDeg = Math.atan2(-(m2.northing - m1.northing), m2.easting - m1.easting) * (180 / Math.PI);
 
-                    // Keep text right-side-up (never upside down)
                     if (angleDeg > 90) angleDeg -= 180;
                     if (angleDeg < -90) angleDeg += 180;
 
@@ -1070,7 +1090,6 @@
                 }
             }
 
-            // 2. Rebuild polygon area label (nearest whole square meter)
             if (obj.type === 'polygon') {
                 if (obj.areaMarker) {
                     areaLabelsGroup.removeLayer(obj.areaMarker);
@@ -1173,7 +1192,7 @@
             updateDrawPrompt();
         });
 
-       function finishDrawing() {
+        function finishDrawing() {
             activeShapeObj = null;
             activeDrawMode = null;
 
