@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vic SMES Viewport Survey Marks (Esri / Leaflet)</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    html, body, #map { height: 100%; width: 100%; }
+
+    /* Floating Control Panel */
+    .hud {
+      position: absolute;
+      top: 14px;
+      left: 54px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 12px 14px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+      width: 310px;
+      max-width: calc(100vw - 70px);
+    }
+    .hud h2 { font-size: 14px; color: #0f172a; margin-bottom: 6px; }
+    .search-row { display: flex; gap: 6px; margin-bottom: 8px; }
+    input[type="text"] {
+      flex: 1; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;
+    }
+    button {
+      padding: 6px 12px; background: #1d4ed8; color: #fff; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    button:hover { background: #1e40af; }
+    .status-bar { font-size: 12px; color: #334155; display: flex; justify-content: space-between; align-items: center; }
+    .legend { display: flex; gap: 10px; font-size: 11px; color: #475569; margin-top: 6px; padding-top: 6px; border-top: 1px solid #e2e8f0; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+
+    /* Popup Styling */
+    .iw-content { font-size: 13px; line-height: 1.45; color: #1e293b; min-width: 230px; }
+    .iw-title { font-weight: 700; font-size: 14px; color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 6px; }
+    .iw-grid { display: grid; grid-template-columns: 88px 1fr; gap: 2px 6px; }
+    .iw-label { font-weight: 600; color: #475569; }
+    .iw-links { margin-top: 8px; padding-top: 6px; border-top: 1px solid #e2e8f0; display: flex; gap: 12px; }
+    .iw-links a { color: #1d4ed8; text-decoration: none; font-weight: 600; font-size: 12px; }
+    .iw-links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <div class="hud">
+    <h2>Vic SMES Viewport Marks</h2>
+    <div class="search-row">
+      <input type="text" id="filterInput" placeholder="Filter visible (e.g. 315 or WNGS)">
+      <button id="clearBtn">Clear</button>
+    </div>
+    <div class="status-bar">
+      <span id="statusText">Initializing...</span>
+      <span id="countText">0 marks</span>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:#22c55e;"></i>OK</span>
+      <span><i class="dot" style="background:#ef4444;"></i>Destroyed</span>
+      <span><i class="dot" style="background:#f59e0b;"></i>Other</span>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    const MIN_ZOOM_FOR_MARKS = 14;
+    const markersMap = new Map();
+    let activeAbortController = null;
+
+    // 1. Basemaps
+    const esriSatellite = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      {
+        maxZoom: 19,
+        attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics"
+      }
+    );
+
+    const esriLabels = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19 }
+    );
+
+    const osmStreets = L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }
+    );
+
+    const satelliteHybrid = L.layerGroup([esriSatellite, esriLabels]);
+
+    // 2. Initialize Map centered on Wangaratta South
+    const map = L.map("map", {
+      center: [-36.36405, 146.30631],
+      zoom: 16,
+      layers: [satelliteHybrid]
+    });
+
+    L.control.layers({
+      "Esri Satellite": satelliteHybrid,
+      "Street Map": osmStreets
+    }).addTo(map);
+
+    const marksLayerGroup = L.layerGroup().addTo(map);
+
+    // 3. Query Victorian DataVic WFS (smes_full) for marks inside current viewport
+    async function fetchMarksInViewport() {
+      const zoom = map.getZoom();
+      const statusEl = document.getElementById("statusText");
+
+      if (zoom < MIN_ZOOM_FOR_MARKS) {
+        statusEl.textContent = `Zoom in (level ${MIN_ZOOM_FOR_MARKS}+) to load marks`;
+        clearAllMarkers();
+        return;
+      }
+
+      const bounds = map.getBounds();
+      const sw = bounds.getSouthWest();
+      const ne = bounds.getNorthEast();
+
+      if (activeAbortController) activeAbortController.abort();
+      activeAbortController = new AbortController();
+
+      statusEl.textContent = "Fetching marks in view...";
+
+      const wfsBase = "https://opendata.maps.vic.gov.au/geoserver/wfs";
+      const params = new URLSearchParams({
+        service: "WFS",
+        version: "1.1.0",
+        request: "GetFeature",
+        typeName: "open-data-platform:smes_full",
+        outputFormat: "application/json",
+        srsName: "EPSG:4326",
+        maxFeatures: "1000",
+        bbox: `${sw.lng},${sw.lat},${ne.lng},${ne.lat},EPSG:4326`
+      });
+
+      try {
+        const res = await fetch(`${wfsBase}?${params.toString()}`, {
+          signal: activeAbortController.signal
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`HTTP ${res.status}: ${errText.slice(0, 120)}`);
+        }
+
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("json")) {
+          const xmlErr = await res.text();
+          throw new Error(`Non-JSON response: ${xmlErr.slice(0, 150)}`);
+        }
+
+        const geojson = await res.json();
+        renderGeoJsonFeatures(geojson.features || []);
+        statusEl.textContent = "Viewport synced";
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        console.error("WFS Fetch Error:", err);
+        statusEl.textContent = "Error fetching WFS layer (check F12 console)";
+      }
+    }
+
+    // Helper to safely read case-insensitive properties
+    function getProp(props, ...keys) {
+      for (const k of keys) {
+        if (props[k] !== undefined && props[k] !== null && props[k] !== "") return props[k];
+        const lower = k.toLowerCase();
+        if (props[lower] !== undefined && props[lower] !== null && props[lower] !== "") return props[lower];
+        const upper = k.toUpperCase();
+        if (props[upper] !== undefined && props[upper] !== null && props[upper] !== "") return props[upper];
+      }
+      return null;
+    }
+
+    // Helper to extract the true 9-digit SMES number
+    function extractNineFigureNumber(props, fallbackId) {
+      // 1. Check common DataVic smes_full property names
+      const raw = getProp(
+        props,
+        "nine_fig",
+        "nine_figure_number",
+        "nine_figure_no",
+        "nine_fig_no",
+        "mark_id"
+      );
+      if (raw && /^\d{9}$/.test(String(raw).trim())) {
+        return String(raw).trim();
+      }
+
+      // 2. Fallback: extract 9 digits from mark name (e.g., "PCM110590349" -> "110590349")
+      const name = String(getProp(props, "name", "mark_name", "station_name") || "");
+      const match = name.match(/(\d{9})/);
+      if (match) return match[1];
+
+      return String(fallbackId);
+    }
+
+    // 4. Plot Vector Dots & Bind Popups
+    function renderGeoJsonFeatures(features) {
+      const visibleIds = new Set();
+
+      features.forEach((feat) => {
+        if (!feat.geometry || !feat.geometry.coordinates) return;
+
+        const props = feat.properties || {};
+        const nineFig = extractNineFigureNumber(props, feat.id);
+        visibleIds.add(nineFig);
+
+        if (markersMap.has(nineFig)) return;
+
+        const [lng, lat] = feat.geometry.coordinates;
+        const name = getProp(props, "name", "mark_name", "station_name") || "Survey Mark";
+        const status = String(getProp(props, "status", "mark_status") || "OK").toUpperCase();
+
+        let fillColor = "#22c55e"; // Green = OK
+        if (status.includes("DEST") || status.includes("NOT") || status.includes("REM")) {
+          fillColor = "#ef4444"; // Red = Destroyed / Missing
+        } else if (status !== "OK") {
+          fillColor = "#f59e0b"; // Amber = Other
+        }
+
+        const circleMarker = L.circleMarker([lat, lng], {
+          radius: 6,
+          fillColor: fillColor,
+          color: "#ffffff",
+          weight: 1.5,
+          opacity: 1,
+          fillOpacity: 0.95
+        });
+
+        circleMarker.bindTooltip(`${name} (${nineFig})`, { direction: "top", offset: [0, -6] });
+        circleMarker.bindPopup(buildPopupHtml(props, nineFig));
+
+        circleMarker._searchText = `${name} ${nineFig}`.toLowerCase();
+        circleMarker.addTo(marksLayerGroup);
+        markersMap.set(nineFig, circleMarker);
+      });
+
+      // Prune marks outside the current window
+      for (const [id, marker] of markersMap.entries()) {
+        if (!visibleIds.has(id)) {
+          marksLayerGroup.removeLayer(marker);
+          markersMap.delete(id);
+        }
+      }
+
+      applyTextFilter();
+    }
+
+    // Open LASSI PDF stream by fetching the JSON via a CORS proxy when running locally
+    async function openLassiDocument(endpoint, markId, label) {
+      if (!markId || markId === "N/A") {
+        alert("No mark_id available for this survey mark.");
+        return;
+      }
+
+      const targetApi = `https://lassi.land.vic.gov.au/api/core/document/${endpoint}?mark_id=${encodeURIComponent(markId)}&datum=GDA2020`;
+
+      // Reserve the new tab immediately on click so Chrome doesn't block the popup
+      const pdfWindow = window.open("", "_blank");
+      if (pdfWindow) {
+        pdfWindow.document.write(`<p style="font-family: sans-serif; padding: 20px;">Fetching ${label} for Mark ID ${markId}...</p>`);
+      }
+
+      // Try direct first, then public CORS proxies (needed because file:/// triggers CORS blocks on LASSI)
+      const candidates = [
+        targetApi,
+        `https://corsproxy.io/?${encodeURIComponent(targetApi)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetApi)}`
+      ];
+
+      let data = null;
+      let lastError = "Failed to fetch";
+
+      for (const fetchUrl of candidates) {
+        try {
+          const res = await fetch(fetchUrl);
+          if (!res.ok) {
+            lastError = `HTTP ${res.status}`;
+            continue;
+          }
+          data = await res.json();
+          if (data && (data.url || data.downloadUrl)) break;
+        } catch (err) {
+          lastError = err.message;
+        }
+      }
+
+      const s3PdfUrl = data && (data.url || data.downloadUrl);
+
+      if (s3PdfUrl) {
+        if (pdfWindow) {
+          pdfWindow.location.href = s3PdfUrl;
+        } else {
+          window.open(s3PdfUrl, "_blank", "noopener");
+        }
+      } else {
+        if (pdfWindow) pdfWindow.close();
+        alert(`Could not retrieve ${label} (${lastError}). LASSI may not have a ${label.toLowerCase()} on file for Mark ID ${markId}.`);
+      }
+    }
+
+    function buildPopupHtml(p, nineFig) {
+      const name = getProp(p, "name", "mark_name", "station_name") || "Survey Mark";
+      const markId = getProp(p, "mark_id") || "N/A";
+      const easting = getProp(p, "mga2020_easting", "easting", "gda2020_easting") || "N/A";
+      const northing = getProp(p, "mga2020_northing", "northing", "gda2020_northing") || "N/A";
+      const zone = getProp(p, "mga94_zone", "zone", "mga_zone") || "55";
+      const ahd = getProp(p, "ahd_height", "ahd_rl", "reduced_level", "ahd", "elevation") || "N/A";
+      const vOrder = getProp(p, "v_order");
+      const scnGda = getProp(p, "scn_gda") || "N/A";
+      const status = getProp(p, "status", "mark_status") || "N/A";
+
+      const ahdDisplay = vOrder ? `${ahd} m (Order ${vOrder})` : `${ahd} m`;
+
+      const rawRows = Object.entries(p)
+        .filter(([, v]) => v !== null && v !== "" && typeof v !== "object")
+        .map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`)
+        .join("");
+
+      return `
+        <div class="iw-content">
+          <div class="iw-title">${name}</div>
+          <div class="iw-grid">
+            <span class="iw-label">Nine-Fig:</span><span>${nineFig}</span>
+            <span class="iw-label">Mark ID:</span><span>${markId}</span>
+            <span class="iw-label">MGA2020:</span><span>${easting}, ${northing} (${zone})</span>
+            <span class="iw-label">AHD Height:</span><span>${ahdDisplay}</span>
+            <span class="iw-label">SCN GDA:</span><span>${scnGda}</span>
+            <span class="iw-label">Status:</span><span>${status}</span>
+          </div>
+          <div class="iw-links">
+            <a href="https://lassi.land.vic.gov.au/api/core/document/surveyMarkReport?mark_id=${markId}&datum=GDA2020"
+               onclick="event.preventDefault(); openLassiDocument('surveyMarkReport', '${markId}', 'Mark Report');">
+               Mark Report
+            </a>
+            <a href="https://lassi.land.vic.gov.au/api/core/document/surveyMarkSketches?mark_id=${markId}&datum=GDA2020"
+               onclick="event.preventDefault(); openLassiDocument('surveyMarkSketches', '${markId}', 'Sketch');">
+               Sketch
+            </a>
+          </div>
+          <details style="margin-top:6px; font-size:11px; color:#475569;">
+            <summary style="cursor:pointer; font-weight:600;">Inspect DataVic Fields</summary>
+            <div style="max-height:110px; overflow-y:auto; margin-top:4px; padding:4px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px; word-break:break-all;">
+              ${rawRows}
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
+    function applyTextFilter() {
+      const term = document.getElementById("filterInput").value.trim().toLowerCase();
+      let shown = 0;
+
+      for (const marker of markersMap.values()) {
+        const match = !term || marker._searchText.includes(term);
+        if (match) {
+          if (!marksLayerGroup.hasLayer(marker)) marksLayerGroup.addLayer(marker);
+          shown++;
+        } else {
+          if (marksLayerGroup.hasLayer(marker)) marksLayerGroup.removeLayer(marker);
+        }
+      }
+
+      document.getElementById("countText").textContent = `${shown} mark${shown === 1 ? "" : "s"}`;
+    }
+
+    function clearAllMarkers() {
+      marksLayerGroup.clearLayers();
+      markersMap.clear();
+      document.getElementById("countText").textContent = "0 marks";
+    }
+
+    // Event Listeners
+    map.on("moveend", fetchMarksInViewport);
+    document.getElementById("filterInput").addEventListener("input", applyTextFilter);
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      document.getElementById("filterInput").value = "";
+      applyTextFilter();
+    });
+
+    // Initial load
+    fetchMarksInViewport();
+  </script>
+</body>
+</html>
